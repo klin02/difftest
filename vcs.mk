@@ -70,8 +70,14 @@ VCS_FLAGS += -Mdir=$(VCS_BUILD_DIR)
 # enable fsdb dump
 VCS_FLAGS += $(EXTRA)
 
+ifndef USE_RELEASE
 $(VCS_TARGET): $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
 	vcs $(VCS_FLAGS) $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
+else
+# usage: make simv USE_RELEASE="-F rtl_file_list -F sim_file_list" RELEASE=1
+$(VCS_TARGET): $(VCS_CXXFILES)
+	vcs $(VCS_FLAGS) $(USE_RELEASE) $(VCS_CXXFILES) $(shell find $(VCS_VSRC_DIR) -name "*.v")
+endif
 
 vcs-clean:
 	rm -rf simv csrc DVEfiles simv.daidir stack.info.* ucli.key $(VCS_BUILD_DIR)
