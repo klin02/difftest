@@ -355,7 +355,7 @@ void Difftest::do_first_instr_commit() {
       return;
     }
 #endif
-    printf("The first instruction of core %d has commited. Difftest enabled. \n", id);
+    printf("The first instruction of core %d has commited . Difftest enabled. \n", id);
     has_commit = 1;
     nemu_this_pc = FIRST_INST_ADDRESS;
 
