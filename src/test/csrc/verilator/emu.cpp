@@ -249,6 +249,17 @@ Emulator::Emulator(int argc, const char *argv[]):
   // set log time range and log level
   dut_ptr->io_logCtrl_log_begin = args.log_begin;
   dut_ptr->io_logCtrl_log_end = args.log_end;
+  dut_ptr->io_pf_ctl = (
+		(1  << 16) |   // L2 pf store only [16] init: false
+    (20 << 10) |   // L1D active page stride [15:10] init: 30
+    (12 << 6 ) |   // L1D active page threshold [9:6] init: 12
+    (1  << 5 ) |   // L1D enable pht [5] init: false
+    (1  << 4 ) |   // L1D enable agt [4] init: false
+    (0  << 3 ) |   // L1D train on hit [3] init: false
+    (1  << 2 ) |   // L1D pf enable [2] init: false
+    (1  << 1 ) |   // L2 pf enable [1] init: true
+    (1  << 0 )  	 // L1I pf enable [0] init: true
+  );
 }
 
 Emulator::~Emulator() {
