@@ -39,6 +39,11 @@ void init_goldenmem() {
   ref_misc_put_gmaddr(pmem);
 }
 
+void goldenmem_finish() {
+  munmap(pmem, PMEM_SIZE);
+  pmem = NULL;
+}
+
 void update_goldenmem(paddr_t addr, void *data, uint64_t mask, int len) {
   uint8_t *dataArray = (uint8_t*)data;
   for (int i = 0; i < len; i++) {
