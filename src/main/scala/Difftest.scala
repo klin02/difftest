@@ -18,7 +18,6 @@ package difftest
 
 import chisel3._
 import chisel3.util._
-import Chisel.BlackBox
 import chisel3.experimental.{DataMirror, ExtModule}
 
 trait DifftestParameter {
@@ -220,9 +219,9 @@ class DiffRunaheadMemdepPredIO extends DifftestBundle with DifftestWithIndex {
   val oracle_vaddr  = Output(UInt(64.W))
 }
 
-abstract class DifftestModule[T <: DifftestBundle] extends ExtModule with HasExtModuleInline
+abstract class DifftestModule extends ExtModule with HasExtModuleInline
 {
-  val io: T
+  val io: Bundle
 
   def getDirectionString(data: Data): String = {
     if (DataMirror.directionOf(data) == ActualDirection.Input) "input " else "output"
@@ -288,7 +287,7 @@ abstract class DifftestModule[T <: DifftestBundle] extends ExtModule with HasExt
   def instantiate(): Unit = setInline(s"$moduleName.v", moduleBody)
 }
 
-class DifftestBaseModule[T <: DifftestBundle](gen: T) extends DifftestModule[T] {
+class DifftestBaseModule[T <: DifftestBundle](gen: T) extends DifftestModule {
   val io = IO(gen)
   instantiate()
 }

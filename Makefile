@@ -18,6 +18,8 @@ SIM_TOP    ?= SimTop
 DESIGN_DIR ?= ..
 NUM_CORES  ?= 1
 
+DIFFTEST_TOP = DifftestTop
+
 # Set USE_DIFFTEST_MAIN to 1 in your design's Makefile to generate Verilog by difftest
 # rather than by design.
 # Set this variable if your design is written in Verilog.
@@ -40,6 +42,7 @@ sim-verilog: $(SIM_TOP_V)
 difftest_verilog:
 ifeq ($(USE_DIFFTEST_MAIN), 1)
 	mill chiselModule.runMain difftest.DifftestMain -td $(BUILD_DIR)
+	tools/split_blackbox.sh $(BUILD_DIR) $(DIFFTEST_TOP).v
 endif
 
 # co-simulation with DRAMsim3

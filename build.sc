@@ -1,42 +1,32 @@
-import mill._, scalalib._
+import mill._, scalalib._, scalafmt._
 import coursier.maven.MavenRepository
 
 trait CommonModule extends ScalaModule {
-  override def scalaVersion = "2.12.13"
-
-  override def scalacOptions = Seq("-Xsource:2.11")
+  override def scalaVersion = "2.13.10"
+  override def scalacPluginIvyDeps = Agg(ivy"org.chipsalliance:::chisel-plugin:5.0.0")
+  override def scalacOptions = super.scalacOptions() ++ Agg("-Ymacro-annotations", "-Ytasty-reader")
 }
 
-trait HasXsource211 extends ScalaModule {
-  override def scalacOptions = T {
-    super.scalacOptions() ++ Seq(
-      "-deprecation",
-      "-unchecked",
-      "-Xsource:2.11"
-    )
-  }
+trait HasChisel extends ScalaModule {
+  override def ivyDeps = Agg(ivy"org.chipsalliance::chisel:5.0.0")
 }
 
-trait HasChisel3 extends ScalaModule {
-   override def ivyDeps = Agg(
-    ivy"edu.berkeley.cs::chisel3:3.5.0-RC1"
- )
-}
-
-trait HasChiselTests extends CrossSbtModule  {
-  object test extends Tests {
-    override def ivyDeps = Agg(ivy"org.scalatest::scalatest:3.0.4", ivy"edu.berkeley.cs::chisel-iotesters:1.2+")
-    def testFrameworks = Seq("org.scalatest.tools.Framework")
-  }
-}
-
-object difftest extends SbtModule with CommonModule with HasChisel3 {
+object difftest extends SbtModule with ScalafmtModule with CommonModule with HasChisel {
   override def millSourcePath = os.pwd / "difftest"
 }
 
-object chiselModule extends CrossSbtModule with HasChisel3 with HasChiselTests with HasXsource211 {
-  def crossScalaVersion = "2.12.13"
+object chiselModule extends SbtModule with ScalafmtModule with CommonModule with HasChisel {
+  override def millSourcePath = millOuterCtx.millSourcePath
+
   override def moduleDeps = super.moduleDeps ++ Seq(
     difftest
   )
+
+  object test extends SbtModuleTests with TestModule.ScalaTest {
+    override def ivyDeps = super.ivyDeps() ++ Agg(
+      ivy"org.scalatest::scalatest:3.2.4",
+      ivy"edu.berkeley.cs::chisel-iotesters:2.5+"
+    )
+    def testFrameworks = "org.scalatest.tools.Framework"
+  }
 }
