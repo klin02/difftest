@@ -41,7 +41,13 @@ module SimJTAG #(
 
    bit          r_reset;
 
+`ifdef PALLADIUM
+   logic [31:0] random_dummy = $random;
+   wire [31:0]  random_bits;
+   assign random_bits = random_dummy;
+`else
    wire [31:0]  random_bits = $random;
+`endif // PALLADIUM
 
    wire         #0.1 __jtag_TDO = jtag_TDO_driven ?
                 jtag_TDO_data : random_bits[0];
