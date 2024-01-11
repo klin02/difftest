@@ -22,6 +22,8 @@ endif
 IXCOM_FLAGS  = -64 -ua +sv +ignoreSimVerCheck +xe_alt_xlm
 ifeq ($(RELEASE_WITH_ASSERT), 1)
 IXCOM_FLAGS += +1xua
+else
+IXCOM_FLAGS += +iscDelay+tb_top +iscDelay+SimJTAG -enableLargeSizeMem
 endif
 
 # Compiler Args
@@ -45,7 +47,7 @@ IXCOM_FLAGS += -v $(AXIS_HOME)/etc/ixcom/IXCclkgen.sv
 endif
 IXCOM_FLAGS += +iscdisp+Rob +iscdisp+tb_top +iscdisp+MemRWHelper
 ifneq ($(RELEASE_WITH_ASSERT), 1)
-IXCOM_FLAGS += +iscDelay+tb_top +iscDelay+SimJTAG -enableLargeSizeMem +rtlCommentPragma +tran_relax -relativeIXCDIR -rtlNameForGenerate
+IXCOM_FLAGS += +rtlCommentPragma +tran_relax -relativeIXCDIR -rtlNameForGenerate
 endif
 IXCOM_FLAGS += +tfconfig+$(PLDM_SCRIPTS_DIR)/argConfigs.qel
 
@@ -61,8 +63,9 @@ IXCOM_FLAGS   += -F $(PLDM_VFILELIST)
 
 # VLAN Flags
 ifneq ($(RELEASE_WITH_ASSERT), 1)
-VLAN_FLAGS  = -64 -sv -vtimescale 1ns/1ns
+VLAN_FLAGS  = -64 -sv
 VLAN_FLAGS += $(addprefix -incdir , $(PLDM_VSRC_DIR))
+VLAN_FLAGS += -vtimescale 1ns/1ns
 VLAN_FLAGS += $(PLDM_MACRO_FLAGS)
 VLAN_FLAGS += -F $(PLDM_VFILELIST)
 endif
@@ -77,7 +80,7 @@ PLDM_CXXFLAGS += -m64 -c -fPIC -g -std=c++11 -I$(PLDM_IXCOM) -I$(PLDM_SIMTOOL)
 PLDM_CXXFLAGS += -shared -o $(DPILIB_EMU)
 
 # Run/Debug Flags
-XSDEBUG_FLAGS  = --xmsim -64 -R +xcprof -profile
+XSDEBUG_FLAGS  = --xmsim -64 +xcprof -profile
 ifneq ($(RELEASE_WITH_ASSERT), 1)
 XSDEBUG_FLAGS += -sv_lib ${DPILIB_EMU}
 endif
