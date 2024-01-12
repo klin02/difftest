@@ -17,9 +17,10 @@ PLDM_MACRO_FLAGS += +define+SYNTHESIS +define+TB_NO_DPIC
 else
 PLDM_MACRO_FLAGS += +define+DIFFTEST
 endif
+PLDM_MACRO_FLAGS += $(PLDM_EXTRA_MACRO)
 
 # UA Args
-IXCOM_FLAGS  = -64 -ua +sv +ignoreSimVerCheck +xe_alt_xlm
+IXCOM_FLAGS  = -clean -64 -ua +sv +ignoreSimVerCheck +xe_alt_xlm
 ifeq ($(RELEASE_WITH_ASSERT), 1)
 IXCOM_FLAGS += +1xua
 else
@@ -74,17 +75,18 @@ endif
 PLDM_SIMTOOL   = $(shell cds_root xrun)/tools/include
 PLDM_IXCOM 	   = $(shell cds_root ixcom)/share/uxe/etc/ixcom
 DPILIB_EMU     = $(PLDM_BUILD_DIR)/libdpi_emu.so
-PLDM_CXXFILES  = $(SIM_CXXFILES) $(shell find $(VCS_CSRC_DIR) -name "*.cpp")
-PLDM_CXXFLAGS  = $(SIM_CXXFLAGS) -I$(VCS_CSRC_DIR) -DNUM_CORES=$(NUM_CORES)
-PLDM_CXXFLAGS += -m64 -c -fPIC -g -std=c++11 -I$(PLDM_IXCOM) -I$(PLDM_SIMTOOL)
-PLDM_CXXFLAGS += -shared -o $(DPILIB_EMU)
+PLDM_CSRC_DIR  = $(abspath ./src/test/csrc/vcs)
+PLDM_CXXFILES  = $(SIM_CXXFILES) $(shell find $(PLDM_CSRC_DIR) -name "*.cpp")
+PLDM_CXXFLAGS  = -o $(DPILIB_EMU) -m64 -c -fPIC -g -std=c++11 -I$(PLDM_IXCOM) -I$(PLDM_SIMTOOL)
+PLDM_CXXFLAGS  = $(SIM_CXXFLAGS) -I$(PLDM_CSRC_DIR) -DNUM_CORES=$(NUM_CORES)
 
-# Run/Debug Flags
-XSDEBUG_FLAGS  = --xmsim -64 +xcprof -profile
+# XMSIM Flags
+XMSIM_FLAGS  = --xmsim -64 +xcprof -profile
 ifneq ($(RELEASE_WITH_ASSERT), 1)
-XSDEBUG_FLAGS += -sv_lib ${DPILIB_EMU}
+XMSIM_FLAGS += -sv_lib ${DPILIB_EMU}
 endif
-XSDEBUG_FLAGS += $(PLDM_EXTRA_ARGS)
+XMSIM_FLAGS += $(PLDM_EXTRA_ARGS)
+XMSIM_FLAGS += --
 
 $(PLDM_BUILD_DIR):
 	mkdir -p $(PLDM_BUILD_DIR)
@@ -110,11 +112,11 @@ endif
 
 pldm-run: $(PLDM_BUILD_DIR)
 	cd $(PLDM_BUILD_DIR) 									&& \
-	xeDebug $(XSDEBUG_FLAGS) -- -input $(PLDM_SCRIPTS_DIR)/run.tcl -l run-$$(date +%Y%m%d-%H%M%S).log
+	xeDebug $(XMSIM_FLAGS) -input $(PLDM_SCRIPTS_DIR)/run.tcl -l run-$$(date +%Y%m%d-%H%M%S).log
 
 pldm-debug: $(PLDM_BUILD_DIR)
 	cd $(PLDM_BUILD_DIR) 									&& \
-	xeDebug $(XSDEBUG_FLAGS) -- -gui -xedebugargs -fsdb -input $(PLDM_SCRIPTS_DIR)/run_debug.tcl -l debug-$$(date +%Y%m%d-%H%M%S).log
+	xeDebug $(XMSIM_FLAGS) -gui -xedebugargs -fsdb -input $(PLDM_SCRIPTS_DIR)/run_debug.tcl -l debug-$$(date +%Y%m%d-%H%M%S).log
 
 pldm-clean:
 	rm -rf $(PLDM_BUILD_DIR)
