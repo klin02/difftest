@@ -2,6 +2,7 @@ PLDM_TB_TOP  		 = tb_top
 PLDM_TOP_MODULE 	 = SimTop
 
 PLDM_BUILD_DIR 		 = $(abspath $(BUILD_DIR)/pldm-compile)
+PLDM_CC_OBJ_DIR	 	 = $(abspath $(PLDM_BUILD_DIR)/cc_obj)
 PLDM_SCRIPTS_DIR 	 = $(abspath ./scripts/palladium)
 
 # Macro Flags
@@ -77,7 +78,7 @@ PLDM_IXCOM 	 = $(shell cds_root ixcom)/share/uxe/etc/ixcom
 DPILIB_EMU    	 = $(PLDM_BUILD_DIR)/libdpi_emu.so
 PLDM_CSRC_DIR 	 = $(abspath ./src/test/csrc/vcs)
 PLDM_CXXFILES 	 = $(SIM_CXXFILES) $(shell find $(PLDM_CSRC_DIR) -name "*.cpp")
-PLDM_CXXFLAGS 	 = -o $(DPILIB_EMU) -m64 -c -fPIC -g -std=c++11 -I$(PLDM_IXCOM) -I$(PLDM_SIMTOOL)
+PLDM_CXXFLAGS 	 = -m64 -c -fPIC -g -std=c++11 -I$(PLDM_IXCOM) -I$(PLDM_SIMTOOL)
 PLDM_CXXFLAGS 	 = $(SIM_CXXFLAGS) -I$(PLDM_CSRC_DIR) -DNUM_CORES=$(NUM_CORES)
 
 # XMSIM Flags
@@ -91,6 +92,9 @@ XMSIM_FLAGS 	+= --
 $(PLDM_BUILD_DIR):
 	mkdir -p $(PLDM_BUILD_DIR)
 
+$(PLDM_CC_OBJ_DIR)
+	mkdir -p $(PLDM_CC_OBJ_DIR)
+
 $(PLDM_VFILELIST):
 	find $(PLDM_VSRC_DIR) -name "*.v" -or -name "*.sv" >> $(PLDM_VFILELIST)
 
@@ -103,11 +107,13 @@ pldm-build: $(PLDM_BUILD_DIR) $(PLDM_VFILELIST) $(PLDM_CLOCK_SRC)
 	cd $(PLDM_BUILD_DIR) 					&& \
 	ixcom $(IXCOM_FLAGS) -l $(PLDM_BUILD_DIR)/ixcom.log
 else
-pldm-build: $(PLDM_BUILD_DIR) $(PLDM_VFILELIST)
+pldm-build: $(PLDM_BUILD_DIR) $(PLDM_VFILELIST) $(PLDM_CC_OBJ_DIR)
 	cd $(PLDM_BUILD_DIR) 					&& \
 	vlan $(VLAN_FLAGS) -l $(PLDM_BUILD_DIR)/vlan.log	&& \
 	ixcom $(IXCOM_FLAGS) -l $(PLDM_BUILD_DIR)/ixcom.log	&& \
-	$(CC) $(PLDM_CXXFLAGS) $(PLDM_CXXFILES)
+	cd $(PLDM_CC_OBJ_DIR) 					&& \
+	$(CC) $(PLDM_CXXFLAGS) $(PLDM_CXXFILES)			&& \
+	$(CC) -o $(DPILIB_EMU) -m64 -shared *.o
 endif
 
 pldm-run: $(PLDM_BUILD_DIR)
