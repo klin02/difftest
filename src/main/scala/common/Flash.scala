@@ -86,7 +86,7 @@ class FlashHelper extends ExtModule with HasExtModuleInline {
        |      $display("Flash: load %d bytes from %s.", n_read, bin_file);
        |    end
        |    else begin
-       |      /** no specified flash_path ,use defualt 3 instructions*/
+       |      /** no specified flash_path, use defualt 3 instructions **/
        |      // addiw   t0,zero,1
        |      // slli    to,to,  0x1f
        |      // jr      t0
