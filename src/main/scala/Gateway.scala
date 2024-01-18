@@ -21,12 +21,13 @@ import difftest._
 import difftest.common.DifftestWiring
 import difftest.dpic.DPIC
 import difftest.squash.Squash
+import difftest.batch.Batch
 
 import scala.collection.mutable.ListBuffer
 
 case class GatewayConfig(
                         style          : String  = "dpic",
-                        hasGlobalEnable: Boolean = false,
+                        hasGlobalEnable: Boolean = true,
                         isSquash       : Boolean = false,
                         squashReplay   : Boolean = false,
                         replaySize     : Int     = 256,
@@ -216,19 +217,25 @@ class GatewayEndpoint(signals: Seq[DifftestBundle], config: GatewayConfig) exten
   val step = IO(Output(UInt(config.stepWidth.W)))
   step := Mux(enable, config.maxStep.U, 0.U)
 
-  if (config.isBatch) {
-    for (ptr <- 0 until config.batchSize) {
-      ports(ptr).dut_pos.get := ptr.asUInt
-      for(id <- 0 until out.length) {
-        GatewaySink(out(id).cloneType, config, ports(ptr)) := batch_data.get(ptr)(id)
-      }
-    }
-  }
-  else {
-    for(id <- 0 until out.length){
-      GatewaySink(out(id).cloneType, config, ports.head) := out_pack(id)
-    }
-  }
+//  if (config.isBatch) {
+//    for (ptr <- 0 until config.batchSize) {
+//      ports(ptr).dut_pos.get := ptr.asUInt
+//      for(id <- 0 until out.length) {
+//        GatewaySink(out(id).cloneType, config, ports(ptr)) := batch_data.get(ptr)(id)
+//      }
+//    }
+//  }
+//  else {
+//    for(id <- 0 until out.length){
+//      GatewaySink(out(id).cloneType, config, ports.head) := out_pack(id)
+//    }
+//  }
+  val batched = WireInit(out)
+  val batch = Batch(batched.toSeq.map(_.cloneType), config)
+  batch.in := out
+  
+  DPIC.batch(out.cloneType, config, ports.head) := out_pack
+
 
   GatewaySink.collect(config)
 

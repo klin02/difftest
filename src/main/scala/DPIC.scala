@@ -158,6 +158,25 @@ class DPIC[T <: DifftestBundle](gen: T, config: GatewayConfig) extends ExtModule
   setInline(s"$desiredName.v", moduleBody)
 }
 
+//class DPIC[T <: DifftestBundle](gen: T, config: GatewayConfig)
+
+private class DummyDPICBatchWrapper[T <: Seq[DifftestBundle]](gens: T, config: GatewayConfig) extends Module {
+  val interfaces = ListBuffer.empty[(String, String, String)]
+  val io = IO(Input(MixedVec(gens.map(gen => UInt(gen.getWidth.W)))))
+  val enable = IO(Input(Bool()))
+  val dut_pos = Option.when(config.hasDutPos)(IO(Input(UInt(config.dutPosWidth.W))))
+
+  val unpack = io.zip(gens).map { case (pack, gen) => pack.asTypeOf(gen) }
+  unpack.foreach { gen =>
+    val dpic = Module(new DPIC(gen.cloneType, config))
+    dpic.clock := clock
+    dpic.enable := gen.bits.getValid && enable
+    if (config.hasDutPos) dpic.dut_pos.get := dut_pos.get
+    dpic.io := gen
+    val interface = (dpic.dpicFuncName, dpic.dpicFuncProto, dpic.dpicFunc)
+    interfaces += interface
+  }
+}
 private class DummyDPICWrapper[T <: DifftestBundle](gen: T, config: GatewayConfig) extends Module {
   val io = IO(Input(UInt(gen.getWidth.W)))
   val enable = IO(Input(Bool()))
@@ -184,6 +203,14 @@ object DPIC {
       val interface = (dpic.dpicFuncName, dpic.dpicFuncProto, dpic.dpicFunc)
       interfaces += interface
     }
+    module.io
+  }
+
+  def batch[T <: Seq[DifftestBundle]](gens: T, config: GatewayConfig, port: GatewayBundle): MixedVec[UInt] = {
+    val module = Module(new DummyDPICBatchWrapper(gens, config))
+    module.enable := port.enable
+    if (config.hasDutPos) module.dut_pos.get := port.dut_pos.get
+    interfaces ++= module.interfaces.toSeq
     module.io
   }
 
