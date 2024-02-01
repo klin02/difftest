@@ -19,12 +19,20 @@ import chisel3._
 import chisel3.util._
 import difftest._
 import difftest.gateway.GatewayConfig
+import difftest.Delayer
 
-class BatchOutput(bundles: Seq[DifftestBundle], config: GatewayConfig) extends Bundle {
-  val data = Vec(config.batchSize, MixedVec(bundles))
-  val info = Vec(config.batchSize, UInt(log2Ceil(config.batchSize).W))
+import scala.collection.mutable.ListBuffer
+
+class BatchOutput(dataWidth: Int, infoWidth: Int, config: GatewayConfig) extends Bundle {
+  val data = UInt(dataWidth.W)
+  val info = UInt(infoWidth.W)
   val enable = Bool()
   val step = UInt(config.stepWidth.W)
+}
+
+class BatchInfo extends Bundle {
+  val id = UInt(8.W)
+  val len = UInt(16.W)
 }
 
 object Batch {
@@ -37,26 +45,57 @@ object Batch {
 
 class BatchEndpoint(bundles: Seq[DifftestBundle], config: GatewayConfig) extends Module {
   val in = IO(Input(MixedVec(bundles)))
-  val buffer = Mem(config.batchSize, in.cloneType)
-  val out = IO(Output(new BatchOutput(bundles, config)))
 
-  val need_store = WireInit(true.B)
-  if (config.hasGlobalEnable) {
-    need_store := VecInit(in.flatMap(_.bits.needUpdate).toSeq).asUInt.orR
-  }
-  val ptr = RegInit(0.U(log2Ceil(config.batchSize).W))
-  when(need_store) {
-    ptr := ptr + 1.U
-    when(ptr === (config.batchSize - 1).U) {
-      ptr := 0.U
+  def bundleAlign(bundle: DifftestBundle): UInt = {
+    def byteAlign(data: Data): UInt = {
+      val width: Int = data.getWidth + (8 - data.getWidth % 8) % 8
+      data.asTypeOf(UInt(width.W))
     }
-    buffer(ptr) := in
+    val element = ListBuffer.empty[UInt]
+    bundle.elements.toSeq.reverse.foreach { case (name, data) =>
+      if (name != "valid") {
+        data match {
+          case vec: Vec[_] => element ++= vec.map(byteAlign(_))
+          case data: Data  => element += byteAlign(data)
+        }
+      }
+    }
+    MixedVecInit(element.toSeq).asUInt
   }
-  val do_sync = ptr === (config.batchSize - 1).U && need_store
-  for (((data, ifo), idx) <- out.data.zip(out.info).zipWithIndex) {
-    data := buffer(idx)
-    ifo := idx.U
+
+  val aligned_data = MixedVecInit(in.map(i => bundleAlign(i)).toSeq)
+
+  val global_enable = WireInit(true.B)
+  if (config.hasGlobalEnable) {
+    global_enable := VecInit(in.flatMap(_.bits.needUpdate).toSeq).asUInt.orR
   }
-  out.enable := RegNext(do_sync)
+
+  val bundleNum = in.length
+  val delayed_enable = Delayer(global_enable, bundleNum)
+  val delayed_data = MixedVecInit(aligned_data.zipWithIndex.map { case (data, i) => Delayer(data, i) }.toSeq)
+  val delayed_valid = VecInit(in.zipWithIndex.map { case (gen, i) =>
+    Delayer(gen.bits.getValid & global_enable, i)
+  }.toSeq)
+
+  val data_vec = Reg(MixedVec((1 to bundleNum).map(i => UInt(aligned_data.map(_.getWidth).take(i).sum.W))))
+  val info_vec = Reg(MixedVec((1 to bundleNum).map(i => UInt((i * (new BatchInfo).getWidth).W))))
+
+  for (idx <- 0 until bundleNum) {
+    val info = Wire(new BatchInfo)
+    info.id := idx.U
+    info.len := (aligned_data(idx).getWidth / 8).U
+    if (idx == 0) {
+      data_vec(idx) := Mux(delayed_valid(idx), delayed_data(idx), 0.U)
+      info_vec(idx) := Mux(delayed_valid(idx), info.asUInt, 0.U)
+    } else {
+      data_vec(idx) := Mux(delayed_valid(idx), Cat(data_vec(idx - 1), delayed_data(idx)), data_vec(idx - 1))
+      info_vec(idx) := Mux(delayed_valid(idx), Cat(info_vec(idx - 1), info.asUInt), info_vec(idx - 1))
+    }
+  }
+
+  val out = IO(Output(new BatchOutput(aligned_data.getWidth, bundleNum * (new BatchInfo).getWidth, config)))
+  out.data := data_vec(bundleNum - 1)
+  out.info := info_vec(bundleNum - 1)
+  out.enable := delayed_enable
   out.step := Mux(out.enable, config.batchSize.U, 0.U)
 }
