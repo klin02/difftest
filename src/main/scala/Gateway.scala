@@ -18,22 +18,22 @@ package difftest.gateway
 import chisel3._
 import chisel3.util._
 import difftest._
-import difftest.batch.Batch
 import difftest.common.DifftestWiring
 import difftest.dpic.DPIC
 import difftest.squash.Squash
+import difftest.batch.{Batch, BatchOutput}
 
 import scala.collection.mutable.ListBuffer
 
 case class GatewayConfig(
   style: String = "dpic",
-  hasGlobalEnable: Boolean = false,
+  hasGlobalEnable: Boolean = true,
   isSquash: Boolean = false,
   squashReplay: Boolean = false,
   replaySize: Int = 256,
-  diffStateSelect: Boolean = false,
-  isBatch: Boolean = false,
-  batchSize: Int = 32,
+  diffStateSelect: Boolean = true,
+  isBatch: Boolean = true,
+  batchSize: Int = 1,
   isNonBlock: Boolean = false,
 ) {
   if (squashReplay) require(isSquash)
@@ -154,7 +154,7 @@ class GatewayEndpoint(signals: Seq[DifftestBundle], config: GatewayConfig) exten
     step := batch.step
     if (config.hasDutZone) zoneControl.get.enable := batch.enable
 
-    val bundle = Wire(new GatewayBatchBundle(squashed.toSeq.map(_.cloneType), config))
+    val bundle = Wire(new GatewayBatchBundle(batch.cloneType, config))
     bundle.enable := batch.enable
     if (config.hasDutZone) bundle.dut_zone.get := zoneControl.get.dut_zone
     bundle.data := batch.data
@@ -215,9 +215,9 @@ class GatewayBundle(gen: DifftestBundle, config: GatewayConfig) extends GatewayB
   val data = gen
 }
 
-class GatewayBatchBundle(bundles: Seq[DifftestBundle], config: GatewayConfig) extends GatewayBaseBundle(config) {
-  val data = Vec(config.batchSize, MixedVec(bundles))
-  val info = Vec(config.batchSize, UInt(log2Ceil(config.batchSize).W))
+class GatewayBatchBundle(bundle: BatchOutput, config: GatewayConfig) extends GatewayBaseBundle(config) {
+  val data = bundle.data
+  val info = bundle.info
 }
 
 object Preprocess {
