@@ -27,14 +27,14 @@ import scala.collection.mutable.ListBuffer
 
 case class GatewayConfig(
   style: String = "dpic",
-  hasGlobalEnable: Boolean = false,
+  hasGlobalEnable: Boolean = true,
   isSquash: Boolean = false,
   squashReplay: Boolean = false,
   replaySize: Int = 256,
   hasDutZone: Boolean = false,
   isBatch: Boolean = false,
   batchSize: Int = 32,
-  isNonBlock: Boolean = false,
+  isNonBlock: Boolean = true,
 ) {
   if (squashReplay) require(isSquash)
   def dutZoneSize: Int = if (hasDutZone) 2 else 1

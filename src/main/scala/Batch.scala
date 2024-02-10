@@ -118,8 +118,13 @@ class BatchEndpoint(template: Seq[DifftestBundle], bundles: Seq[DifftestBundle],
 
   val BatchInterval = Wire(new BatchInfo)
   val BatchFinish = Wire(new BatchInfo)
+  val BatchStart = Wire(new BatchInfo)
+  val BatchBoot = Wire(new BatchInfo)
   BatchInterval.id := template.length.U
   BatchFinish.id := (template.length + 1).U
+  BatchStart.id := (template.length + 2).U
+  BatchBoot.id := 0.U
+  val BatchHead = Cat(BatchBoot.asUInt, BatchStart.asUInt)
   val step_data = WireInit(data_vec(bundleNum - 1))
   val step_info = Cat(info_vec(bundleNum - 1), BatchInterval.asUInt)
   val step_data_len = data_len_vec(bundleNum - 1)
@@ -132,15 +137,15 @@ class BatchEndpoint(template: Seq[DifftestBundle], bundles: Seq[DifftestBundle],
   val state_step_cnt = RegInit(0.U(log2Ceil(config.batchSize + 1).W))
 
   val exceed = (state_data_len +& step_data_len > MaxDataByteLen.U) |
-    (state_info_len +& step_info_len + (infoWidth / 8).U > MaxInfoByteLen.U)
-  val should_tick = delayed_enable && (exceed || state_step_cnt === config.batchSize.U)
+    (state_info_len +& step_info_len > (MaxInfoByteLen - 3 * infoWidth / 8).U)
+  val should_tick = delayed_enable && (exceed || state_step_cnt === (config.batchSize - 1).U)
   when(delayed_enable) {
     when(should_tick) {
       state_data := step_data
       state_data_len := step_data_len
       state_info := step_info
       state_info_len := step_info_len
-      state_step_cnt := 1.U
+      state_step_cnt := 0.U
     }.otherwise {
       state_data := state_data | step_data << (state_data_len << 3)
       state_data_len := state_data_len + step_data_len
@@ -152,7 +157,7 @@ class BatchEndpoint(template: Seq[DifftestBundle], bundles: Seq[DifftestBundle],
 
   val out = IO(Output(new BatchOutput(state_data, state_info, config)))
   out.io.data := state_data
-  out.io.info := state_info | BatchFinish.asUInt << (state_info_len << 3)
+  out.io.info := Cat(state_info | BatchFinish.asUInt << (state_info_len << 3), BatchHead)
   out.enable := should_tick
   out.step := Mux(out.enable, state_step_cnt, 0.U)
 }
