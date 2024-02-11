@@ -24,6 +24,7 @@ ifeq ($(SYNTHESIS), 1)
 IXCOM_FLAGS 	+= +1xua
 else
 IXCOM_FLAGS 	+= +iscDelay+tb_top -enableLargeSizeMem
+IXCOM_FLAGS 	+= +gfifo_merge_calls
 endif
 
 # Compiler Args

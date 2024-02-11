@@ -89,6 +89,7 @@ abstract class DPICBase(config: GatewayConfig) extends ExtModule with HasExtModu
        |}
        |""".stripMargin
 
+  def dpicFuncCalls: Seq[String] = Seq(s"$dpicFuncName (${dpicFuncArgs.flatten.map(_._1).mkString(", ")});")
   def moduleBody: String = {
     val dpicDecl =
       // (1) DPI-C function prototype
@@ -118,8 +119,9 @@ abstract class DPICBase(config: GatewayConfig) extends ExtModule with HasExtModu
          |$dpicDecl
          |$gfifoInitial
          |  always @(posedge clock) begin
-         |    if (enable)
-         |      $dpicFuncName (${dpicFuncArgs.flatten.map(_._1).mkString(", ")});
+         |    if (enable) begin
+         |      ${dpicFuncCalls.mkString("\n      ")}
+         |    end
          |  end
          |`endif
          |`endif
@@ -206,20 +208,38 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
     unpack.toSeq.mkString("\n      ")
   }
 
-  override def modPorts = super.modPorts ++ Seq(Seq(("io_data", io.data)), Seq(("io_info", io.info)))
+  override def modPorts = super.modPorts ++
+    Seq(("io_data", io.data), ("io_info", io.info)).map { case (name, data) =>
+      data match {
+        case vec: Vec[_] => vec.zipWithIndex.map { case (v, i) => (s"${name}_$i", v) }
+        case _           => Seq((s"$name", data))
+      }
+    }
+
+  override def dpicFuncArgs: Seq[Seq[(String, Data)]] = super.dpicFuncArgs.map { p =>
+    val prefix = p.head._1 match {
+      case x => x.slice(0, x.lastIndexOf('_'))
+    }
+    if (Seq("io_data", "io_info").contains(prefix)) {
+      Seq((prefix, p.head._2))
+    } else {
+      p
+    }
+  }
 
   override def desiredName: String = "DifftestBatch"
   override def dpicFuncAssigns: Seq[String] = {
-    val bundleEnum = template.map(_.desiredModuleName.replace("Difftest", "")) ++ Seq("BatchInterval", "BatchFinish")
-    val bundleAssign = template.zipWithIndex.map { case (t, idx) =>
+    val bundleEnum =
+      Seq("BatchFinish", "BatchInterval", "BatchBoot") ++ template.map(_.desiredModuleName.replace("Difftest", ""))
+    val bundleAssign = template.map { t =>
       s"""
-         |    else if (id == ${bundleEnum(idx)}) {
+         |    else if (id == ${t.desiredModuleName.replace("Difftest", "")}) {
          |      ${getDPICBundleUnpack(t)}
          |    }
         """.stripMargin
     }.mkString("")
 
-    val infoLen = io.info.getWidth / 8
+    val infoLen = io.info.head.getWidth / 8
     Seq(s"""
            |  enum DifftestBundleType {
            |  ${bundleEnum.mkString(",\n  ")}
@@ -227,6 +247,7 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |
            |  uint64_t offset = 0;
            |  uint32_t dut_index = 0;
+           |  bool batch_first = true;
            |  static uint8_t info[$infoLen];
            |  memcpy(info, io_info, $infoLen * sizeof(uint8_t));
            |  uint8_t* data = (uint8_t*)io_data;
@@ -236,13 +257,32 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |    if (id == BatchFinish) {
            |      break;
            |    }
-           |    else if (id == BatchInterval && i != 0) {
-           |      dut_index ++;
+           |    else if (id == BatchInterval) {
+           |      if (batch_first)
+           |        batch_first = false;
+           |      else
+           |        dut_index ++;
+           |      continue;
+           |    }
+           |    else if (id == BatchBoot) {
+           |      i++;
+           |      dut_index = info[i];
            |      continue;
            |    }
            |    $bundleAssign
            |  }
            |""".stripMargin)
+  }
+
+  override def dpicFuncCalls: Seq[String] = {
+    val callNums = io.data.length
+    (0 until callNums).map { idx =>
+      val args = dpicFuncArgs.flatten.map(_._1).map {
+        case x if Seq("io_data", "io_info").contains(x) => s"${x}_$idx"
+        case y                                          => y
+      }
+      s"$dpicFuncName (${args.mkString(", ")});"
+    }
   }
 
   setInline(s"$desiredName.v", moduleBody)

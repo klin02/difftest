@@ -28,11 +28,11 @@ import scala.collection.mutable.ListBuffer
 case class GatewayConfig(
   style: String = "dpic",
   hasGlobalEnable: Boolean = true,
-  isSquash: Boolean = false,
+  isSquash: Boolean = true,
   squashReplay: Boolean = false,
   replaySize: Int = 256,
-  hasDutZone: Boolean = false,
-  isBatch: Boolean = false,
+  hasDutZone: Boolean = true,
+  isBatch: Boolean = true,
   batchSize: Int = 32,
   isNonBlock: Boolean = true,
 ) {
