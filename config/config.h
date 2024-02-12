@@ -153,6 +153,14 @@ extern unsigned long EMU_FLASH_SIZE;
 #endif
 
 // -----------------------------------------------------------------------
+// Simulator Store Log Config
+// -----------------------------------------------------------------------
+// Support for NEMU memory snapshot and recover
+// record origin memory data of each pmem write, restore in reverse order
+// correspongding macro CONFIG_STORE_LOG in NEMU config
+#define ENABLE_STORE_LOG
+
+// -----------------------------------------------------------------------
 // Do not touch
 // -----------------------------------------------------------------------
 
