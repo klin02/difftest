@@ -123,6 +123,7 @@ extern "C" void simv_nstep(uint8_t step) {
     }
   }
   if (simv_result) {
+    difftest_finish();
     difftest_deferred_result();
   }
 }
@@ -131,8 +132,10 @@ extern "C" int simv_nstep(uint8_t step) {
   difftest_switch_zone();
   for(int i = 0; i < step; i++) {
     int ret = simv_step();
-    if(ret)
+    if(ret) {
+      difftest_finish();
       return ret;
+    }
   }
   return 0;
 }

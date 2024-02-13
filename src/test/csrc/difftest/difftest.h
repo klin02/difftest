@@ -396,4 +396,9 @@ extern "C" void difftest_squash_replay(int idx);
 #endif // CONFIG_DIFFTEST_SQUASH_REPLAY
 #endif // CONFIG_DIFFTEST_SQUASH
 
+#ifdef CONFIG_DIFFTEST_PERFCNT
+void difftest_perfcnt_init();
+void difftest_perfcnt_finish();
+#endif // CONFIG_DIFFTEST_PERFCNT
+
 #endif
