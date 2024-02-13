@@ -24,10 +24,16 @@
 #ifdef CONFIG_DIFFTEST_SQUASH
 #include "svdpi.h"
 #endif // CONFIG_DIFFTEST_SQUASH
+#ifdef CONFIG_DIFFTEST_PERFCNT
+#include <time.h>
+#endif // CONFIG_DIFFTEST_PERFCNT
 
 Difftest **difftest = NULL;
 
 int difftest_init() {
+#ifdef CONFIG_DIFFTEST_PERFCNT
+  difftest_perfcnt_init();
+#endif // CONFIG_DIFFTEST_PERFCNT
   diffstate_buffer_init();
   difftest = new Difftest*[NUM_CORES];
   for (int i = 0; i < NUM_CORES; i++) {
@@ -100,6 +106,9 @@ void difftest_trace_write(int step) {
 }
 
 void difftest_finish() {
+#ifdef CONFIG_DIFFTEST_PERFCNT
+  difftest_perfcnt_finish();
+#endif // CONFIG_DIFFTEST_PERFCNT
   diffstate_buffer_free();
   for (int i = 0; i < NUM_CORES; i++) {
     delete difftest[i];
@@ -1029,3 +1038,28 @@ void DiffState::display(int coreid) {
 DiffState::DiffState() : commit_trace(DEBUG_INST_TRACE_SIZE, nullptr) {
 
 }
+
+#ifdef CONFIG_DIFFTEST_PERFCNT
+long long perf_dpic_calls = 0;
+long long perf_dpic_bytes = 0;
+long long perf_run_time = 0;
+void difftest_perfcnt_init() {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  perf_run_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+void difftest_perfcnt_finish() {
+  printf("=========== Difftest PerfCnt ===========\n");
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  perf_run_time = ts.tv_sec * 1000 + ts.tv_nsec / 1000000 - perf_run_time;
+  long sec = perf_run_time / 1000;
+  long msec = perf_run_time % 1000;
+  printf("Run time: %ld s %ld ms\n",sec,msec);
+  printf("Dpic Calls: %lld\n",perf_dpic_calls);
+  printf("Dpic Calls/s: %lld /s\n",perf_dpic_calls * 1000 / perf_run_time);
+  printf("Dpic Bytes: %lld B\n",perf_dpic_bytes);
+  printf("Dpic Bytes/s: %lld B/s\n",perf_dpic_bytes * 1000 / perf_run_time);
+}
+#endif // CONFIG_DIFFTEST_PERFCNT

@@ -81,10 +81,20 @@ abstract class DPICBase(config: GatewayConfig) extends ExtModule with HasExtModu
     s"auto packet = &($packet$index);"
   }
   def dpicFuncAssigns: Seq[String]
+  def perfCnt: String =
+    s"""
+       |#ifdef CONFIG_DIFFTEST_PERFCNT
+       |  extern long long perf_dpic_calls;
+       |  extern long long perf_dpic_bytes;
+       |  perf_dpic_calls ++;
+       |  perf_dpic_bytes += ${dpicFuncArgs.flatten.map(_._2.getWidth / 8).sum};
+       |#endif // CONFIG_DIFFTEST_PERFCNT
+       |""".stripMargin
   def dpicFunc: String =
     s"""
        |$dpicFuncProto {
        |  if (!diffstate_buffer) return;
+       |$perfCnt
        |  ${dpicFuncAssigns.mkString("\n  ")}
        |}
        |""".stripMargin
