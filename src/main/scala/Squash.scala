@@ -56,8 +56,19 @@ class SquashEndpoint(bundles: Seq[DifftestBundle], config: GatewayConfig) extend
   control.reset := reset
 
   // Submit the pending non-squashable events immediately.
-  val should_tick = !control.enable || !supportsSquash || !supportsSquashBase || tick_first_commit
-  val squashed = Mux(should_tick, state, 0.U.asTypeOf(MixedVec(bundles)))
+  val tickVec = WireInit(VecInit.fill(in.length)(!control.enable || tick_first_commit))
+  in.zip(tickVec).foreach { case (i, t) =>
+    if (i.squashGroup.nonEmpty) {
+      t := !control.enable || tick_first_commit || VecInit(
+        in.zipWithIndex.filter{ case(b, _) =>
+          b.squashGroup.intersect(i.squashGroup).nonEmpty
+        }.map{ case (_, idx) => !supportsSquashBaseVec(idx) || !supportsSquashVec(idx)}.toSeq
+      ).asUInt.orR
+    }
+  }
+//  val should_tick = !control.enable || !supportsSquash || !supportsSquashBase || tick_first_commit
+  val should_tick = tickVec.asUInt.orR
+  val squashed = MixedVecInit(state.zip(tickVec).map{case (s, t) => Mux(t, s, 0.U.asTypeOf(s))})
 
   // Sometimes, the bundle may have squash dependencies.
   val do_squash = WireInit(VecInit.fill(in.length)(true.B))
@@ -74,8 +85,8 @@ class SquashEndpoint(bundles: Seq[DifftestBundle], config: GatewayConfig) extend
     }
   }
 
-  for (((i, d), s) <- in.zip(do_squash).zip(state)) {
-    when(should_tick) {
+  for ((((i, d), s), t) <- in.zip(do_squash).zip(state).zip(tickVec)) {
+    when(t) {
       s := i
     }.elsewhen(d) {
       s := i.squash(s)

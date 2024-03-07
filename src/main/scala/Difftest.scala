@@ -105,6 +105,11 @@ sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: Difft
   // returns a Seq indicating the squash dependencies. Default: empty
   // Only when one of the dependencies is valid, this bundle is squashed.
   val squashDependency: Seq[String] = Seq()
+  // returns a seq of Group name of this bundle, Default: empty
+  // Only bundles with same GroupName will affect others' squash state.
+  // Some bundle will have several GroupName, such as LoadEvent
+  // Optional GroupName: REF / GOLDENMEM
+  val squashGroup: Seq[String] = Seq()
   // returns a squashed, right-value Bundle. Default: overriding `base` with `this`
   def squash(base: DifftestBundle): DifftestBundle = this
 }
@@ -113,10 +118,12 @@ class DiffArchEvent extends ArchEvent with DifftestBundle {
   // DiffArchEvent must be instantiated once for each core.
   override def isUniqueIdentifier: Boolean = true
   override val desiredCppName: String = "event"
+  override val squashGroup: Seq[String] = Seq("REF")
 }
 
 class DiffInstrCommit(nPhyRegs: Int = 32) extends InstrCommit(nPhyRegs) with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "commit"
+  override val squashGroup: Seq[String] = Seq("REF")
 
   private val maxNumFused = 255
   override def supportsSquash(base: DifftestBundle): Bool = {
@@ -140,11 +147,13 @@ class DiffInstrCommit(nPhyRegs: Int = 32) extends InstrCommit(nPhyRegs) with Dif
 
 class DiffTrapEvent extends TrapEvent with DifftestBundle {
   override val desiredCppName: String = "trap"
+  override val squashGroup: Seq[String] = Seq("REF", "GOLDENMEM")
   override def supportsSquashBase: Bool = !hasTrap && !hasWFI
 }
 
 class DiffCSRState extends CSRState with DifftestBundle {
   override val desiredCppName: String = "csr"
+  override val squashGroup: Seq[String] = Seq("REF")
   override val desiredOffset: Int = 1
   override val squashDependency: Seq[String] = Seq("commit", "event")
 }
@@ -155,6 +164,7 @@ class DiffDebugMode extends DebugModeCSRState with DifftestBundle {
 
 class DiffIntWriteback(numRegs: Int = 32) extends DataWriteback(numRegs) with DifftestBundle {
   override val desiredCppName: String = "wb_int"
+  override val squashGroup: Seq[String] = Seq("REF")
   override protected val needFlatten: Boolean = true
   // TODO: We have a special and temporary fix for int writeback in Squash.scala
   // It is only required for MMIO data synchronization for single-core co-sim
@@ -163,10 +173,12 @@ class DiffIntWriteback(numRegs: Int = 32) extends DataWriteback(numRegs) with Di
 
 class DiffFpWriteback(numRegs: Int = 32) extends DiffIntWriteback(numRegs) {
   override val desiredCppName: String = "wb_fp"
+  override val squashGroup: Seq[String] = Seq("REF")
 }
 
 class DiffArchIntRegState extends ArchIntRegState with DifftestBundle {
   override val desiredCppName: String = "regs_int"
+  override val squashGroup: Seq[String] = Seq("REF")
   override val desiredOffset: Int = 0
 }
 
@@ -177,65 +189,78 @@ abstract class DiffArchDelayedUpdate(numRegs: Int)
 
 class DiffArchIntDelayedUpdate extends DiffArchDelayedUpdate(32) {
   override val desiredCppName: String = "regs_int_delayed"
+  override val squashGroup: Seq[String] = Seq("REF")
 }
 
 class DiffArchFpDelayedUpdate extends DiffArchDelayedUpdate(32) {
   override val desiredCppName: String = "regs_fp_delayed"
+  override val squashGroup: Seq[String] = Seq("REF")
 }
 
 class DiffArchFpRegState extends ArchIntRegState with DifftestBundle {
   override val desiredCppName: String = "regs_fp"
+  override val squashGroup: Seq[String] = Seq("REF")
   override val desiredOffset: Int = 2
 }
 
 class DiffArchVecRegState extends ArchVecRegState with DifftestBundle {
   override val desiredCppName: String = "regs_vec"
+  override val squashGroup: Seq[String] = Seq("REF")
   override val desiredOffset: Int = 4
 }
 
 class DiffVecCSRState extends VecCSRState with DifftestBundle {
   override val desiredCppName: String = "vcsr"
+  override val squashGroup: Seq[String] = Seq("REF")
   override val desiredOffset: Int = 5
 }
 
 class DiffSbufferEvent extends SbufferEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "sbuffer"
+  override val squashGroup: Seq[String] = Seq("GOLDENMEM")
 }
 
 class DiffStoreEvent extends StoreEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "store"
+  override val squashGroup: Seq[String] = Seq("REF")
 }
 
 class DiffLoadEvent extends LoadEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "load"
+  override val squashGroup: Seq[String] = Seq("REF", "GOLDENMEM")
   // TODO: currently we assume it can be dropped
   override def supportsSquashBase: Bool = true.B
 }
 
 class DiffAtomicEvent extends AtomicEvent with DifftestBundle {
   override val desiredCppName: String = "atomic"
+  override val squashGroup: Seq[String] = Seq("GOLDENMEM")
 }
 
 class DiffL1TLBEvent extends L1TLBEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "l1tlb"
+  override val squashGroup: Seq[String] = Seq("GOLDENMEM")
   // TODO: currently we assume it can be dropped
   override def supportsSquashBase: Bool = true.B
 }
 
 class DiffL2TLBEvent extends L2TLBEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "l2tlb"
+  override val squashGroup: Seq[String] = Seq("GOLDENMEM")
   // TODO: currently we assume it can be dropped
   override def supportsSquashBase: Bool = true.B
 }
 
 class DiffRefillEvent extends RefillEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "refill"
+  override val squashGroup: Seq[String] = Seq("GOLDENMEM")
   // TODO: currently we assume it can be dropped
   override def supportsSquashBase: Bool = true.B
 }
 
 class DiffLrScEvent extends ScEvent with DifftestBundle {
   override val desiredCppName: String = "lrsc"
+  override val squashGroup: Seq[String] = Seq("REF")
 }
 
 class DiffRunaheadEvent extends RunaheadEvent with DifftestBundle with DifftestWithIndex {
