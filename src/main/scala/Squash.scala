@@ -20,6 +20,7 @@ import chisel3.experimental.ExtModule
 import chisel3.util._
 import difftest._
 import difftest.gateway.GatewayConfig
+import difftest.common.DifftestLog
 
 object Squash {
   def apply(bundles: MixedVec[DifftestBundle], config: GatewayConfig): MixedVec[DifftestBundle] = {
@@ -55,18 +56,25 @@ class SquashEndpoint(bundles: Seq[DifftestBundle], config: GatewayConfig) extend
   control.clock := clock
   control.reset := reset
 
-  // Submit the pending non-squashable events immediately.
-  val tickVec = WireInit(VecInit.fill(in.length)(!control.enable || tick_first_commit))
-  in.zip(tickVec).foreach { case (i, t) =>
-    if (i.squashGroup.nonEmpty) {
-      t := !control.enable || tick_first_commit || VecInit(
-        in.zipWithIndex.filter{ case(b, _) =>
-          b.squashGroup.intersect(i.squashGroup).nonEmpty
-        }.map{ case (_, idx) => !supportsSquashBaseVec(idx) || !supportsSquashVec(idx)}.toSeq
-      ).asUInt.orR
+  // Record Block Vec for each SquashGroup
+  val GroupBlockVec = in.flatMap(_.squashGroup).distinct.map{ g =>
+    (g, WireInit(VecInit.fill(in.length)(false.B)))
+  }
+  GroupBlockVec.foreach{ case (g, v) =>
+    v.zip(in).zipWithIndex.foreach{ case ((b, i), idx) =>
+      if (i.squashGroup.contains(g)) {
+        b := !supportsSquashBaseVec(idx) || !supportsSquashVec(idx)
+        if (config.hasBuiltInPerf) {
+          DifftestLog(s"SquashBlock_${g}_${i.desiredCppName}", b.asUInt)
+        }
+      }
     }
   }
-//  val should_tick = !control.enable || !supportsSquash || !supportsSquashBase || tick_first_commit
+  val GroupBlock = GroupBlockVec.map{ case (g, v) => (g, v.asUInt.orR)}
+  // Submit the pending non-squashable events immediately.
+  val tickVec = VecInit(in.map{ i =>
+    !control.enable || tick_first_commit || GroupBlock.collect{case (g, b) if i.squashGroup.contains(g) => b}.foldLeft(false.B)(_ || _)
+  }.toSeq)
   val should_tick = tickVec.asUInt.orR
   val squashed = MixedVecInit(state.zip(tickVec).map{case (s, t) => Mux(t, s, 0.U.asTypeOf(s))})
 

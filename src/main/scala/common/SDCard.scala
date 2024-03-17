@@ -35,7 +35,7 @@ class SDCardHelper extends ExtModule with HasExtModuleInline {
     s"""
        |`ifndef SYNTHESIS
        |import "DPI-C" function void sd_setaddr(input int addr);
-       |import "DPI-C" function void sd_read(output int data);
+       |import "DPI-C" function void sd_read                                (output int data);
        |`endif // SYNTHESIS
        |
        |module SDCardHelper (
