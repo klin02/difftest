@@ -66,8 +66,9 @@ object DifftestLog {
   def apply(perfName: String, perfCnt: UInt) = {
     val helper = LogPerfControl.apply()
     val counter = RegInit(0.U(64.W))
-    val next_counter = counter + perfCnt
+    val next_counter = WireInit(counter + perfCnt)
     counter := Mux(helper.clean, 0.U, next_counter)
+    dontTouch(helper.dump)
     when(helper.dump) {
       printf(p"[DIFFTEST_PERF][time=${helper.timer}] $perfName, $next_counter\n")
     }

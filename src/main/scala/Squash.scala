@@ -56,27 +56,30 @@ class SquashEndpoint(bundles: Seq[DifftestBundle], config: GatewayConfig) extend
   control.clock := clock
   control.reset := reset
 
-  // Record Block Vec for each SquashGroup
-  val GroupBlockVec = in.flatMap(_.squashGroup).distinct.map{ g =>
-    (g, WireInit(VecInit.fill(in.length)(false.B)))
-  }
-  GroupBlockVec.foreach{ case (g, v) =>
-    v.zip(in).zipWithIndex.foreach{ case ((b, i), idx) =>
-      if (i.squashGroup.contains(g)) {
-        b := !supportsSquashBaseVec(idx) || !supportsSquashVec(idx)
+  // Record Tick Cause for each SquashGroup
+  val GroupName = in.flatMap(_.squashGroup).distinct
+  val GroupTick = GroupName.map { g =>
+    in.zipWithIndex
+      .filter(_._1.squashGroup.contains(g))
+      .groupBy(_._1.desiredCppName)
+      .map { case (name, vec) =>
+        // Mark one of bundles with same name should tick
+        val tick = vec.map(_._2).map { idx => !supportsSquashBaseVec(idx) || !supportsSquashVec(idx) }.reduce(_ || _)
         if (config.hasBuiltInPerf) {
-          DifftestLog(s"SquashBlock_${g}_${i.desiredCppName}", b.asUInt)
+          DifftestLog(s"SquashTick_${g}_$name", tick.asUInt)
         }
+        tick
       }
-    }
+      .reduce(_ || _)
   }
-  val GroupBlock = GroupBlockVec.map{ case (g, v) => (g, v.asUInt.orR)}
+
   // Submit the pending non-squashable events immediately.
-  val tickVec = VecInit(in.map{ i =>
-    !control.enable || tick_first_commit || GroupBlock.collect{case (g, b) if i.squashGroup.contains(g) => b}.foldLeft(false.B)(_ || _)
+  val tickVec = VecInit(in.map { i =>
+    GroupName.zip(GroupTick).collect { case (n, t) if i.squashGroup.contains(n) => t }.foldLeft(false.B)(_ || _) ||
+    !control.enable || tick_first_commit
   }.toSeq)
   val should_tick = tickVec.asUInt.orR
-  val squashed = MixedVecInit(state.zip(tickVec).map{case (s, t) => Mux(t, s, 0.U.asTypeOf(s))})
+  val squashed = MixedVecInit(state.zip(tickVec).map { case (s, t) => Mux(t, s, 0.U.asTypeOf(s)) })
 
   // Sometimes, the bundle may have squash dependencies.
   val do_squash = WireInit(VecInit.fill(in.length)(true.B))
