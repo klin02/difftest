@@ -110,6 +110,8 @@ sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: Difft
   // Some bundle will have several GroupName, such as LoadEvent
   // Optional GroupName: REF / GOLDENMEM
   val squashGroup: Seq[String] = Seq("REF")
+  // returns Int indicating the size of REF processing Queue, relying on REF config
+  val squashQueueSize: Int = 0
   // returns a squashed, right-value Bundle. Default: overriding `base` with `this`
   def squash(base: DifftestBundle): DifftestBundle = this
 }
@@ -210,6 +212,7 @@ class DiffSbufferEvent extends SbufferEvent with DifftestBundle with DifftestWit
 
 class DiffStoreEvent extends StoreEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "store"
+  override val squashQueueSize: Int = 64
 }
 
 class DiffLoadEvent extends LoadEvent with DifftestBundle with DifftestWithIndex {
