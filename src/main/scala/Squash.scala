@@ -122,6 +122,7 @@ class Squasher(bundleType: DifftestBundle, length: Int, config: GatewayConfig) e
   }
 
   if (hasQueue) {
+    require(bundleType.isInstanceOf[DifftestWithIndex])
     // Bundle will not be squashed, but buffered and submit together.
     val ptr = RegInit(0.U(log2Ceil(vecLen).W))
     val offset = PopCount(do_squash)
@@ -139,6 +140,7 @@ class Squasher(bundleType: DifftestBundle, length: Int, config: GatewayConfig) e
     }
     state.zip(out).zipWithIndex.foreach{ case ((s,o), idx) =>
       o := Mux(should_tick && ptr > idx.U, s, 0.U.asTypeOf(o))
+      o.asInstanceOf[DifftestWithIndex].index := idx.U
     }
 //    out := state
   } else {
