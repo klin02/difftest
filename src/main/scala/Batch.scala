@@ -85,6 +85,13 @@ class BatchEndpoint(template: Seq[DifftestBundle], bundles: Seq[DifftestBundle],
   val delayed_valid = VecInit(in.zipWithIndex.map { case (gen, i) =>
     Delayer(gen.bits.getValid & global_enable, i)
   }.toSeq)
+  val delayed_trace_size = Option.when(config.hasReplay) {
+    val traceSize = in.filter(_.desiredCppName == "trace_info").head.asInstanceOf[DiffTraceInfo].trace_size
+    Delayer(traceSize, bundleNum)
+  }
+  val delayed_in_replay = Option.when(config.hasReplay) {
+    in.filter(_.desiredCppName == "trace_info").map(_.asInstanceOf[DiffTraceInfo].in_replay).foldLeft(false.B)(_ || _)
+  }
 
   val MaxDataByteLen = config.batchArgByteLen._1
   val MaxDataByteWidth = log2Ceil(MaxDataByteLen)
@@ -131,17 +138,22 @@ class BatchEndpoint(template: Seq[DifftestBundle], bundles: Seq[DifftestBundle],
   val state_info = RegInit(0.U(MaxInfoBitLen.W))
   val state_info_len = RegInit(0.U(MaxInfoByteWidth.W))
   val state_step_cnt = RegInit(0.U(log2Ceil(config.batchSize + 1).W))
+  val state_trace_size = Option.when(config.hasReplay)(RegInit(0.U(16.W)))
 
-  val data_exceed = state_data_len +& step_data_len > MaxDataByteLen.U
-  val info_exceed = state_info_len +& step_info_len + (infoWidth / 8).U > MaxInfoByteLen.U
-  val step_exceed = state_step_cnt === config.batchSize.U
+  val data_exceed = delayed_enable && (state_data_len +& step_data_len > MaxDataByteLen.U)
+  val info_exceed = delayed_enable && (state_info_len +& step_info_len + (infoWidth / 8).U > MaxInfoByteLen.U)
+  val step_exceed = delayed_enable && (state_step_cnt === config.batchSize.U)
+  val trace_exceed = Option.when(config.hasReplay) {
+    delayed_enable && (state_trace_size.get +& delayed_trace_size.get > config.replaySize.U)
+  }
   if (config.hasBuiltInPerf) {
     DifftestPerf("BatchExceed_data", data_exceed.asUInt)
     DifftestPerf("BatchExceed_info", info_exceed.asUInt)
     DifftestPerf("BatchExceed_step", step_exceed.asUInt)
+    if (config.hasReplay) DifftestPerf("BatchExceed_trace", trace_exceed.get.asUInt)
   }
 
-  val should_tick = delayed_enable && (data_exceed | info_exceed | step_exceed)
+  val should_tick = data_exceed || info_exceed || step_exceed || trace_exceed.getOrElse(false.B) || delayed_in_replay.getOrElse(false.B)
   when(delayed_enable) {
     when(should_tick) {
       state_data := step_data
@@ -149,12 +161,14 @@ class BatchEndpoint(template: Seq[DifftestBundle], bundles: Seq[DifftestBundle],
       state_info := step_info
       state_info_len := step_info_len
       state_step_cnt := 1.U
+      if (config.hasReplay) state_trace_size.get := delayed_trace_size.get
     }.otherwise {
       state_data := state_data | step_data << (state_data_len << 3)
       state_data_len := state_data_len + step_data_len
       state_info := state_info | step_info << (state_info_len << 3)
       state_info_len := state_info_len + step_info_len
       state_step_cnt := state_step_cnt + 1.U
+      if (config.hasReplay) state_trace_size.get := state_trace_size.get + delayed_trace_size.get
     }
   }
 

@@ -213,6 +213,7 @@ extern "C" void simv_nstep(uint8_t step) {
     return;
 #else
 extern "C" uint8_t simv_nstep(uint8_t step) {
+                printf("Before step\n");
   if (difftest == NULL)
     return 0;
 #endif // CONFIG_DIFFTEST_DEFERRED_RESULT
@@ -228,6 +229,7 @@ extern "C" uint8_t simv_nstep(uint8_t step) {
     if (ret) {
       simv_result = ret;
       simv_finish();
+      printf("RET nonzero\n");
 #ifdef CONFIG_DIFFTEST_DEFERRED_RESULT
       difftest_deferred_result(ret);
       return;
@@ -236,6 +238,7 @@ extern "C" uint8_t simv_nstep(uint8_t step) {
 #endif // CONFIG_DIFFTEST_DEFERRED_RESULT
     }
   }
+          printf("After Step\n");
 #ifndef CONFIG_DIFFTEST_DEFERRED_RESULT
   return 0;
 #endif // CONFIG_DIFFTEST_DEFERRED_RESULT
