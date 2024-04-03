@@ -115,6 +115,8 @@ sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: Difft
   // return Size indicating the size of queue. Defualt: 0
   // When hasSquashQueue is true and queueSize non-zero, bundle will not be squashed, but buffered and sumbited together.
   val squashQueueSize: Int = 0
+  // Some Bundle may have squashQueueDelay, requires them submitted after related bundle
+  val squashQueueDelay: Int = 0
 }
 
 class DiffArchEvent extends ArchEvent with DifftestBundle {
@@ -213,7 +215,9 @@ class DiffSbufferEvent extends SbufferEvent with DifftestBundle with DifftestWit
 
 class DiffStoreEvent extends StoreEvent with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "store"
+  // To avoid overflow, queueSize should be less than REF
   override val squashQueueSize: Int = 64
+  override val squashQueueDelay: Int = 1
 }
 
 class DiffLoadEvent extends LoadEvent with DifftestBundle with DifftestWithIndex {
