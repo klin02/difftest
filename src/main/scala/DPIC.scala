@@ -119,17 +119,31 @@ abstract class DPICBase(config: GatewayConfig) extends ExtModule with HasExtModu
          |  ${dpicFuncArgs.flatten.map(arg => getDPICArgString(arg._1, arg._2, false)).mkString(",\n  ")}
          |);
          |""".stripMargin
+    val trapArg = modPorts.filterNot(p => p.length == 1 && commonPorts.exists(_._1 == p.head._1))
+    val TrapDpicDecl = if (desiredName == "DifftestTrapEvent")
+      s"""
+         |import "DPI-C" function void v_diff_trap (
+         |  ${trapArg.flatten.map(arg => getDPICArgString(arg._1, arg._2, false)).mkString(",\n  ")}
+         |);
+         |""".stripMargin
+    else ""
     // (2) module definition
     val modPortsString = modPorts.flatten.map(i => getModArgString(i._1, i._2)).mkString(",\n  ")
     // Initial for Palladium GFIFO
+    val trapInitial = if (desiredName == "DifftestTrapEvent") "initial $ixc_ctrl(\"gfifo\", \"v_diff_trap\");" else ""
     val gfifoInitial =
       if (config.isNonBlock)
         s"""
            |`ifdef PALLADIUM
            |initial $$ixc_ctrl("gfifo", "$dpicFuncName");
+           |$trapInitial
            |`endif
            |""".stripMargin
       else ""
+
+    val trapFunc = if (desiredName == "DifftestTrapEvent")
+      s"if (io_hasTrap) v_diff_trap (${trapArg.flatten.map(_._1).mkString(", ")});"
+    else ""
     val modDef =
       s"""
          |module $desiredName(
@@ -138,10 +152,13 @@ abstract class DPICBase(config: GatewayConfig) extends ExtModule with HasExtModu
          |`ifndef SYNTHESIS
          |`ifdef DIFFTEST
          |$dpicDecl
+         |$TrapDpicDecl
          |$gfifoInitial
          |  always @(posedge clock) begin
-         |    if (enable)
+         |    if (enable) begin
          |      $dpicFuncName (${dpicFuncArgs.flatten.map(_._1).mkString(", ")});
+         |      $trapFunc
+         |    end
          |  end
          |`endif
          |`endif
@@ -163,11 +180,14 @@ class DPIC[T <: DifftestBundle](gen: T, config: GatewayConfig) extends DPICBase(
       }
     }
   }
-  override def dpicFuncArgs: Seq[Seq[(String, Data)]] = if (gen.bits.hasValid) {
-    super.dpicFuncArgs.filterNot(p => p.length == 1 && p.head._1 == "io_valid")
-  } else {
-    super.dpicFuncArgs
-  }
+//   override def dpicFuncArgs: Seq[Seq[(String, Data)]] = if (gen.desiredCppName != "trap") {
+//     Seq()
+//   } else if (gen.bits.hasValid) {
+//     super.dpicFuncArgs.filterNot(p => p.length == 1 && p.head._1 == "io_valid")
+//   } else {
+//     super.dpicFuncArgs
+//   }
+  override def dpicFuncArgs: Seq[Seq[(String, Data)]] = Seq()
 
   override def dpicFuncAssigns: Seq[String] = {
     val filters: Seq[(DifftestBundle => Boolean, Seq[String])] = Seq(
@@ -185,7 +205,12 @@ class DPIC[T <: DifftestBundle](gen: T, config: GatewayConfig) extends DPICBase(
     val body = lhs.zip(rhs.flatten).map { case (l, r) => s"packet->$l = $r;" }
     val packetDecl = Seq(getPacketDecl(gen, "io_", config))
     val validAssign = if (!gen.bits.hasValid || gen.isFlatten) Seq() else Seq("packet->valid = true;")
-    packetDecl ++ validAssign ++ body
+//    if (gen.desiredCppName == "trap") {
+//      packetDecl ++ validAssign ++ body
+//    } else {
+//      body
+//    }
+    body
   }
 
   setInline(s"$desiredName.v", moduleBody)
@@ -393,6 +418,19 @@ object DPIC {
          |long long dpic_calls[DIFFSTATE_PERF_NUM] = {0}, dpic_bytes[DIFFSTATE_PERF_NUM] = {0};
          |#endif // CONFIG_DIFFTEST_PERFCNT
          |""".stripMargin
+    interfaceCpp +=
+      s"""
+         |extern "C" void v_diff_trap (
+         |  uint8_t  dut_zone,
+         |  uint8_t  io_hasTrap,
+         |  uint64_t io_cycleCnt,
+         |  uint64_t io_instrCnt,
+         |  uint8_t  io_hasWFI,
+         |  uint8_t  io_code,
+         |  uint64_t io_pc,
+         |  uint8_t  io_coreid
+         |);
+         |""".stripMargin
     interfaceCpp += interfaces.map(_._2 + ";").mkString("\n")
     interfaceCpp += ""
     interfaceCpp += "#endif // __DIFFTEST_DPIC_H__"
@@ -447,6 +485,35 @@ object DPIC {
          |  difftest_perfcnt_print(\"DIFFSTATE_SUM\", calls_sum, bytes_sum, msec);
          |}
          |#endif // CONFIG_DIFFTEST_PERFCNT
+         |""".stripMargin
+    interfaceCpp +=
+      s"""
+         |extern "C" void v_diff_trap (
+         |  uint8_t dut_zone,
+         |  uint8_t  io_hasTrap,
+         |  uint64_t io_cycleCnt,
+         |  uint64_t io_instrCnt,
+         |  uint8_t  io_hasWFI,
+         |  uint8_t  io_code,
+         |  uint64_t io_pc,
+         |  uint8_t  io_coreid
+         |) {
+         |  if (!diffstate_buffer) return;
+         |
+         |#ifdef CONFIG_DIFFTEST_PERFCNT
+         |  dpic_calls[perf_v_difftest_TrapEvent] ++;
+         |  dpic_bytes[perf_v_difftest_TrapEvent] += 25;
+         |#endif // CONFIG_DIFFTEST_PERFCNT
+         |
+         |  auto packet = &(DUT_BUF(io_coreid, dut_zone, 0)->trap);
+         |  packet->hasTrap = io_hasTrap;
+         |  packet->cycleCnt = io_cycleCnt;
+         |  packet->instrCnt = io_instrCnt;
+         |  packet->hasWFI = io_hasWFI;
+         |  packet->code = io_code;
+         |  packet->pc = io_pc;
+         |
+         |}
          |""".stripMargin
     interfaceCpp += interfaces.map(_._3).mkString("")
     interfaceCpp += ""
