@@ -195,7 +195,14 @@ class GatewayEndpoint(signals: Seq[DifftestBundle], config: GatewayConfig) exten
 
     GatewaySink.batch(Batch.getTemplate, control, batch.io, config)
   } else {
-    val squashed_enable = WireInit(true.B)
+    val grain_size = 1
+    val grain_ctrl = RegInit(0.U(16.W))
+    when(grain_ctrl === (grain_size - 1).U) {
+        grain_ctrl := 0.U
+    }.otherwise {
+        grain_ctrl := grain_ctrl + 1.U
+    }
+    val squashed_enable = WireInit(grain_ctrl === 0.U) || squashed.filter(_.desiredCppName == "trap").head.asInstanceOf[DiffTrapEvent].hasTrap
     if (config.hasGlobalEnable) {
       squashed_enable := VecInit(squashed.flatMap(_.bits.needUpdate).toSeq).asUInt.orR
     }
