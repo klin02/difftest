@@ -315,13 +315,16 @@ object DPIC {
   val interfaces = ListBuffer.empty[(String, String, String)]
 
   def apply(control: GatewaySinkControl, io: DifftestBundle, config: GatewayConfig): Unit = {
-    val module = Module(new DummyDPICWrapper(chiselTypeOf(io), config))
-    module.control := control
-    module.io := io
-    val dpic = module.dpic
-    if (!interfaces.map(_._1).contains(dpic.dpicFuncName)) {
-      val interface = (dpic.dpicFuncName, dpic.dpicFuncProto, dpic.dpicFunc)
-      interfaces += interface
+    val grain_size = 1
+    if (interfaces.length % grain_size == 0 || io.desiredCppName == "trap") {
+      val module = Module(new DummyDPICWrapper(chiselTypeOf(io), config))
+      module.control := control
+      module.io := io
+      val dpic = module.dpic
+      if (!interfaces.map(_._1).contains(dpic.dpicFuncName)) {
+        val interface = (dpic.dpicFuncName, dpic.dpicFuncProto, dpic.dpicFunc)
+        interfaces += interface
+      }
     }
   }
 
