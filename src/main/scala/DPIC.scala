@@ -339,11 +339,11 @@ private class DummyDPICBatchWrapper(
 object DPIC {
   val interfaces = ListBuffer.empty[(String, String, String)]
 
-  var cnt = 0
+//   var cnt = 0
   def apply(control: GatewaySinkControl, io: DifftestBundle, config: GatewayConfig): Unit = {
-    val grain_size = 1
-    cnt = cnt + 1
-    if (cnt % grain_size == 0 || io.desiredCppName == "trap") {
+//     val grain_size = 1
+//     cnt = cnt + 1
+    if (io.desiredCppName == "trap") {
     val module = Module(new DummyDPICWrapper(chiselTypeOf(io), config))
     module.control := control
     module.io := io
