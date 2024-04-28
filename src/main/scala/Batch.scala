@@ -280,8 +280,17 @@ class BatchCollector(
   val info_len_state = RegInit(0.U(param.MaxInfoByteWidth.W))
 
   val align_data = VecInit(data_in.map(i => Batch.bundleAlign(i)).toSeq)
-  val delay_data = VecInit(align_data.map(i => Delayer(i, delay)).toSeq)
-  val delay_valid = VecInit(data_in.map(i => Delayer(i.bits.needUpdate.get && enable, delay)).toSeq)
+  val delayer = align_data.map(d => Module(new BatchDelayer(chiselTypeOf(d), delay)))
+  val delay_data = WireInit(align_data)
+  val delay_valid = VecInit.fill(align_data.length)(false.B)
+  for ((dm, idx) <- delayer.zipWithIndex) {
+    dm.in := align_data(idx)
+    dm.valid_in := data_in(idx).bits.needUpdate.get && enable
+    delay_data(idx) := dm.out
+    delay_valid(idx) := dm.valid_out
+  }
+//  val delay_data = VecInit(align_data.map(i => Delayer(i, delay)).toSeq)
+//  val delay_valid = VecInit(data_in.map(i => Delayer(i.bits.needUpdate.get && enable, delay)).toSeq)
 
   val valid_num = PopCount(delay_valid)
   val info = Wire(new BatchInfo)
@@ -314,3 +323,37 @@ class BatchCollector(
   data_len_out := data_len_state
   info_len_out := info_len_state
 }
+
+class BatchDelayer(dataType: UInt, n_cycles: Int) extends Module {
+  val in = IO(Input(dataType))
+  val valid_in = IO(Input(Bool()))
+  val out = IO(Output(dataType))
+  val valid_out = IO(Output(Bool()))
+
+  if (n_cycles > 0) {
+    val mem = Mem(n_cycles, dataType)
+    val r_ptr = RegInit(0.U(log2Ceil(n_cycles).W))
+    val w_ptr = RegInit(0.U(log2Ceil(n_cycles).W))
+
+    when(valid_in) {
+      mem(w_ptr) := in
+      w_ptr := w_ptr + 1.U
+      when(w_ptr === (n_cycles - 1).U) {
+        w_ptr := 0.U
+      }
+    }
+
+    valid_out := Delayer(valid_in, n_cycles)
+    out := Mux(valid_out, mem(r_ptr), 0.U)
+    when(valid_out) {
+      r_ptr := r_ptr + 1.U
+      when(r_ptr === (n_cycles - 1).U) {
+        r_ptr := 0.U
+      }
+    }
+  } else {
+    out := in
+    valid_out := valid_in
+  }
+}
+
