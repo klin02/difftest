@@ -282,11 +282,19 @@ class BatchCollector(
   val align_data = VecInit(data_in.map(i => Batch.bundleAlign(i)).toSeq)
   val delay_data = WireInit(align_data)
   val delay_valid = VecInit.fill(align_data.length)(false.B)
-  val delayer = Module(new BatchDelayer(chiselTypeOf(align_data.head), align_data.length, delay))
-  delayer.in := align_data
-  delayer.valid_in := data_in.map(i => i.bits.needUpdate.get && enable)
-  delay_data := delayer.out
-  delay_valid := delayer.valid_out
+  
+  val data_delayer = Module(new BatchDelayer(chiselTypeOf(align_data.asUInt), delay))
+  data_delayer.in := align_data.asUInt
+  delay_data := data_delayer.out.asTypeOf(chiselTypeOf(delay_data))
+
+  val valid_vec = VecInit(data_in.map(i => i.bits.needUpdate.get && enable))
+  val valid_delayer = Module(new BatchDelayer(chiselTypeOf(valid_vec.asUInt), delay))
+  valid_delayer.in := valid_vec.asUInt
+  delay_valid := valid_delayer.out.asTypeOf(chiselTypeOf(delay_valid))
+
+//  delayer.valid_in := data_in.map(i => i.bits.needUpdate.get && enable)
+//  delay_data := delayer.out
+//  delay_valid := delayer.valid_out
 //  val delayer = align_data.map(d => Module(new BatchDelayer(chiselTypeOf(d), delay)))
 //  val delay_data = WireInit(align_data)
 //  val delay_valid = VecInit.fill(align_data.length)(false.B)
@@ -331,29 +339,29 @@ class BatchCollector(
   info_len_out := info_len_state
 }
 
-class BatchDelayer(dataType: Data, length: Int, n_cycles: Int) extends Module {
-  val in = IO(Input(Vec(length, dataType)))
-  val valid_in = IO(Input(Vec(length, Bool())))
-  val out = IO(Output(Vec(length, dataType)))
-  val valid_out = IO(Output(Vec(length, Bool())))
-
+class BatchDelayer(dataType: Data, n_cycles: Int) extends Module {
+  val in = IO(Input(dataType))
+//  val valid_in = IO(Input(Vec(length, Bool())))
+  val out = IO(Output(dataType))
+//  val valid_out = IO(Output(Vec(length, Bool())))
+//
   if (n_cycles > 0) {
-    val data_mem = Mem(n_cycles, chiselTypeOf(in))
-    val valid_mem = Mem(n_cycles, chiselTypeOf(valid_in))
+    val mem = Mem(n_cycles, dataType)
+//    val valid_mem = Mem(n_cycles, chiselTypeOf(valid_in))
     val ptr = RegInit(0.U(log2Ceil(n_cycles).W))
     val init_flag = RegInit(false.B)
 //    when(valid_in) {
-    data_mem(ptr) := in
-    valid_mem(ptr) := valid_in
+    mem(ptr) := in
+//    valid_mem(ptr) := valid_in
     ptr := ptr + 1.U
     when(ptr === (n_cycles - 1).U) {
       init_flag := true.B
       ptr := 0.U
     }
 //    }
-
-    valid_out := Mux(init_flag, valid_mem(ptr), 0.U.asTypeOf(valid_out))
-    out := data_mem(ptr)
+    out := Mux(init_flag, mem(ptr), 0.U.asTypeOf(dataType))
+//    valid_out := Mux(init_flag, valid_mem(ptr), 0.U.asTypeOf(valid_out))
+//    out := data_mem(ptr)
 //    out := Mux(valid_out, mem(r_ptr), 0.U)
 //    when(valid_out) {
 //      r_ptr := r_ptr + 1.U
@@ -363,7 +371,7 @@ class BatchDelayer(dataType: Data, length: Int, n_cycles: Int) extends Module {
 //    }
   } else {
     out := in
-    valid_out := valid_in
+//    valid_out := valid_in
   }
 }
 
