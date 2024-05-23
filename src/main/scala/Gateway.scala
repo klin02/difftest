@@ -263,7 +263,7 @@ class Preprocess(bundles: Seq[DifftestBundle], config: GatewayConfig) extends Mo
   out := in
 
   if (config.hasDutZone || config.isSquash || config.isBatch) {
-    // Special fix for int writeback. Work for single-core only
+    // Special fix for int writeback.
     if (in.exists(_.desiredCppName == "wb_int")) {
       if (config.isSquash || config.isBatch) {
         require(numCores == 1, "only single-core is supported yet")
@@ -277,18 +277,26 @@ class Preprocess(bundles: Seq[DifftestBundle], config: GatewayConfig) extends Mo
         }
       }
 
+      val wb_out = out.filter(_.desiredCppName == "wb_int").map(_.asInstanceOf[DiffIntWriteback])
       val commits = in.filter(_.desiredCppName == "commit").map(_.asInstanceOf[DiffInstrCommit])
-      val num_skip = PopCount(commits.map(c => c.valid && c.skip))
-      assert(num_skip <= 1.U, p"num_skip $num_skip is larger than one. Squash not supported yet")
-      val wb_for_skip = out.filter(_.desiredCppName == "wb_int").head.asInstanceOf[DiffIntWriteback]
-      for (c <- commits) {
-        when(c.valid && c.skip) {
-          wb_for_skip.valid := true.B
-          wb_for_skip.address := c.wpdest
-          wb_for_skip.data := wb_int(c.coreid)(c.wpdest)
-          for (wb <- writebacks) {
-            when(wb.valid && wb.address === c.wpdest) {
-              wb_for_skip.data := wb.data
+      require(wb_out.length == commits.length, "WriteBack port length should be same as Commit")
+      val getCommitData = if (in.exists(_.desiredCppName == "load")) {
+        val loads = in.filter(_.desiredCppName == "load").map(_.asInstanceOf[DiffLoadEvent])
+        require(loads.length == commits.length, "LoadEvent length should be same as Commit")
+        commits.zip(loads).map { case (c, ld) => c.valid && (c.skip || ld.isLoad || ld.isAtomic) }
+      } else {
+        commits.map(c => c.valid && c.skip)
+      }
+      wb_out.foreach { wb => wb.valid := false.B }
+      for (((c, v), wb) <- commits.zip(getCommitData).zip(wb_out)) {
+        when(v) {
+          wb.valid := true.B
+          wb.address := c.wpdest
+          wb.data := wb_int(c.coreid)(c.wpdest)
+          // Consider wb_int valid in same cycle
+          for (wb_in <- writebacks) {
+            when(wb_in.valid && wb_in.address === c.wpdest && wb.coreid === c.coreid) {
+              wb.data := wb_in.data
             }
           }
         }
