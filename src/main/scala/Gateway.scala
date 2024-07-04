@@ -38,6 +38,7 @@ case class GatewayConfig(
   hasInternalStep: Boolean = false,
   isNonBlock: Boolean = false,
   hasBuiltInPerf: Boolean = false,
+  implicitWiring: Boolean = false,
 ) {
   def dutZoneSize: Int = if (hasDutZone) 2 else 1
   def dutZoneWidth: Int = log2Ceil(dutZoneSize)
@@ -108,6 +109,7 @@ object Gateway {
       case 'I' => config = config.copy(hasInternalStep = true)
       case 'N' => config = config.copy(isNonBlock = true)
       case 'P' => config = config.copy(hasBuiltInPerf = true)
+      case 'W' => config = config.copy(implicitWiring = true)
       case x   => println(s"Unknown Gateway Config $x")
     }
     config.check()
@@ -116,8 +118,9 @@ object Gateway {
   def apply[T <: DifftestBundle](gen: T): T = {
     val bundle = WireInit(0.U.asTypeOf(gen))
     if (config.needEndpoint) {
-      val packed = WireInit(bundle.asUInt)
-      DifftestWiring.addSource(packed, s"gateway_${instances.length}")
+      val packed = WireInit(UInt(bundle.getWidth.W), bundle.asUInt)
+      val bundleID = getBundleID(gen, instances.toSeq)
+      DifftestWiring.addSource(packed, bundleID, config)
     } else {
       val control = WireInit(0.U.asTypeOf(new GatewaySinkControl(config)))
       control.enable := true.B
@@ -127,9 +130,17 @@ object Gateway {
     bundle
   }
 
+  def getBundleID[T <: DifftestBundle](gen: T, list: Seq[T]): String = {
+    val name = gen.desiredCppName
+    s"${name}_${list.count(_.desiredCppName == name)}"
+  }
+
   def collect(): GatewayResult = {
-    val sink = if (config.needEndpoint) {
-      val endpoint = Module(new GatewayEndpoint(instances.toSeq, config))
+    val res = if (config.needEndpoint) {
+      val signals = instances.toSeq
+      val sink = Module(new DifftestSinkWrapper(signals, config))
+      val endpoint = Module(new GatewayEndpoint(signals, config))
+      endpoint.in := sink.out
       GatewayResult(
         instances = endpoint.instances,
         structPacked = Some(config.isBatch),
@@ -138,25 +149,30 @@ object Gateway {
     } else {
       GatewayResult(instances = instances.toSeq) + GatewaySink.collect(config)
     }
-    sink + GatewayResult(
+    res + GatewayResult(
       cppMacros = config.cppMacros,
       vMacros = config.vMacros,
     )
   }
 }
 
-class GatewayEndpoint(signals: Seq[DifftestBundle], config: GatewayConfig) extends Module {
-  val in = WireInit(0.U.asTypeOf(MixedVec(signals.map(_.cloneType))))
-  val in_pack = WireInit(0.U.asTypeOf(MixedVec(signals.map(gen => UInt(gen.getWidth.W)))))
-  for ((data, id) <- in_pack.zipWithIndex) {
-    DifftestWiring.addSink(data, s"gateway_$id")
-    in(id) := data.asTypeOf(in(id).cloneType)
+class DifftestSinkWrapper(signals: Seq[DifftestBundle], config: GatewayConfig) extends Module {
+  val packed = WireInit(0.U.asTypeOf(MixedVec(signals.map(gen => UInt(gen.getWidth.W)))))
+  for ((data, idx) <- packed.zipWithIndex) {
+    DifftestWiring.addSink(data, Gateway.getBundleID(signals(idx), signals.take(idx)), config)
   }
+  val out = IO(Output(chiselTypeOf(packed)))
+  out := packed
+}
+
+class GatewayEndpoint(signals: Seq[DifftestBundle], config: GatewayConfig) extends Module {
+  val in = IO(Input(MixedVec(signals.map(gen => UInt(gen.getWidth.W)))))
+  val bundle = MixedVecInit(in.zip(signals).map{ case (i, s) => i.asTypeOf(s)}.toSeq)
 
   val preprocessed = if (config.needPreprocess) {
-    WireInit(Preprocess(in, config))
+    WireInit(Preprocess(bundle, config))
   } else {
-    WireInit(in)
+    WireInit(bundle)
   }
 
   val replayed = if (config.hasReplay) {

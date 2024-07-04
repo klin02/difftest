@@ -17,12 +17,85 @@ package difftest.common
 
 import chisel3._
 import chisel3.util.experimental.BoringUtils
+import chisel3.experimental.ExtModule
+import chisel3.util.HasExtModuleInline
+import difftest.gateway.GatewayConfig
 
 // Wrapper for the Chisel wiring utils.
 private object WiringControl {
-  def addSource(data: Data, name: String): Unit = BoringUtils.addSource(data, s"difftest_$name")
+  def addSource(data: Data, name: String, isImplicit: Boolean): Unit = {
+    if (isImplicit) {
+      val source = Module(new WiringSource(data, name))
+      source.io := data
+    } else {
+      BoringUtils.addSource(data, s"difftest_$name")
+    }
+  }
 
-  def addSink(data: Data, name: String): Unit = BoringUtils.addSink(data, s"difftest_$name")
+  def addSink(data: Data, name: String, isImplicit: Boolean): Unit = {
+    if (isImplicit) {
+      val sink = Module(new WiringSink(data, name)).suggestName(name)
+      data := sink.io
+    } else {
+      BoringUtils.addSink(data, s"difftest_$name")
+    }
+  }
+}
+
+abstract class WiringBase(data: Data, name: String, isSource: Boolean) extends ExtModule with HasExtModuleInline {
+  val io = {
+    def do_direction(dt: Data): Data = if (isSource) Input(dt) else Output(dt)
+    IO(do_direction(chiselTypeOf(data)))
+  }
+  override def desiredName: String = {
+    val wiringType = if (isSource) "Source" else "Sink"
+    s"Difftest${wiringType}_${name}"
+  }
+
+  def modPorts: Seq[(String, Data)] = data match {
+    case b: Bundle => b.elements.toSeq.reverse.map { case (name, d) =>
+      d match {
+        case vec: Vec[_] => vec.zipWithIndex.map { case (v, i) => (s"io_${name}_$i", v) }
+        case _ => Seq((s"io_$name", d))
+      }
+    }.flatten
+    case _: UInt => Seq(("io", data))
+  }
+
+  def getModArgString(argName: String, data: Data): String = {
+    val widthString = if (data.getWidth == 1) "      " else f"[${data.getWidth - 1}%2d:0]"
+    val direction = if (isSource) "input" else "output"
+    s"$direction $widthString $argName"
+  }
+
+  def moduleAssign: String = ""
+  def moduleBody: String = {
+    val modPortsString = modPorts.map(i => getModArgString(i._1, i._2)).mkString(",\n  ")
+    s"""
+       |module $desiredName(
+       |  $modPortsString
+       |);
+       |$moduleAssign
+       |endmodule
+       |""".stripMargin
+  }
+}
+
+class WiringSource(data: Data, name: String) extends WiringBase(data, name, true) {
+  override def moduleAssign: String = {
+    s"""
+       |`ifndef SYNTHESIS
+       |`ifdef DIFFTEST
+       |  assign SimTop.difftest_sink.${name}.io = io;
+       |`endif
+       |`endif
+       |""".stripMargin
+  }
+  setInline(s"$desiredName.v", moduleBody)
+}
+
+class WiringSink(data: Data, name: String) extends WiringBase(data, name, false) {
+  setInline(s"$desiredName.v", moduleBody)
 }
 
 private class WiringInfo(val dataType: Data, val name: String) {
@@ -61,15 +134,15 @@ object DifftestWiring {
     }
   }
 
-  def addSource[T <: Data](data: T, name: String): T = {
+  def addSource(data: Data, name: String, config: GatewayConfig = GatewayConfig()): Data = {
     getWire(data, name).setSource()
-    WiringControl.addSource(data, name)
+    WiringControl.addSource(data, name, config.implicitWiring)
     data
   }
 
-  def addSink[T <: Data](data: T, name: String): T = {
+  def addSink[T <: Data](data: T, name: String, config: GatewayConfig = GatewayConfig()): T = {
     getWire(data, name).addSink()
-    WiringControl.addSink(data, name)
+    WiringControl.addSink(data, name, config.implicitWiring)
     data
   }
 
