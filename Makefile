@@ -38,6 +38,9 @@ endif
 ifneq ($(CONFIG), )
 MILL_ARGS += --difftest-config $(CONFIG)
 endif
+ifeq ($(TRACE), 1)
+MILL_ARGS += --trace-drive
+endif
 difftest_verilog:
 	mill -i difftest.test.runMain difftest.DifftestMain --target-dir $(RTL_DIR) $(MILL_ARGS)
 

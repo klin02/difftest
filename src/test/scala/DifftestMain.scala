@@ -17,10 +17,13 @@
 package difftest
 
 import chisel3._
+import chisel3.util._
 import chisel3.stage._
+import difftest.trace.Trace
 
 import java.nio.file.{Files, Paths}
 import scala.annotation.tailrec
+import scala.collection.mutable.ListBuffer
 import org.json4s.DefaultFormats
 import org.json4s.native.JsonMethods.parse
 
@@ -60,22 +63,30 @@ class DifftestTop extends Module {
 }
 
 // Generate simulation interface based on Profile describing the instantiated information of design
-class SimTop(profileName: String, numCores: Int) extends Module {
+class SimTop(profileName: String, numCores: Int, traceDrive: Boolean) extends Module {
   val profileStr = Files.readString(Paths.get(profileName))
   val profiles = parse(profileStr).extract[List[Map[String, Any]]](DefaultFormats, manifest[List[Map[String, Any]]])
-  for (coreid <- 0 until numCores) {
-    profiles.filter(_.contains("className")).zipWithIndex.foreach { case (rawProf, idx) =>
-      val prof = rawProf.map { case (k, v) =>
-        v match {
-          case i: BigInt => (k, i.toInt) // convert BigInt to Int
-          case x         => (k, x)
+  val bundles = Seq
+    .tabulate(numCores) { coreid =>
+      profiles.filter(_.contains("className")).zipWithIndex.map { case (rawProf, idx) =>
+        val prof = rawProf.map { case (k, v) =>
+          v match {
+            case i: BigInt => (k, i.toInt) // convert BigInt to Int
+            case x         => (k, x)
+          }
         }
+        val constructor = Class.forName(prof("className").toString).getConstructors()(0)
+        val args = constructor.getParameters().toSeq.map { param => prof(param.getName.toString) }
+        val inst = constructor.newInstance(args: _*).asInstanceOf[DifftestBundle]
+        DifftestModule(inst, true, prof("delay").asInstanceOf[Int]).suggestName(s"gateway_${coreid}_$idx")
       }
-      val constructor = Class.forName(prof("className").toString).getConstructors()(0)
-      val args = constructor.getParameters().toSeq.map { param => prof(param.getName.toString) }
-      val inst = constructor.newInstance(args: _*).asInstanceOf[DifftestBundle]
-      DifftestModule(inst, true, prof("delay").asInstanceOf[Int]).suggestName(s"gateway_${coreid}_$idx")
     }
+    .flatten
+  if (traceDrive) {
+//    val driver = WireInit(0.U.asTypeOf(MixedVec(bundles.map(chiselTypeOf(_)))))
+//    Trace(driver, false)
+    val driver = Trace.load(bundles.map(chiselTypeOf(_)))
+    bundles.zip(driver).foreach { case (b, d) => b := d }
   }
   val dutInfo = profiles.find(_.contains("cpu")).get
   DifftestModule.finish(dutInfo("cpu").asInstanceOf[String])
@@ -85,6 +96,7 @@ object DifftestMain extends App {
   case class GenParams(
     profile: Option[String] = None,
     numCores: Int = 1,
+    traceDrive: Boolean = false,
   )
   def parseArgs(args: Array[String]): (GenParams, Array[String]) = {
     val default = new GenParams()
@@ -95,6 +107,7 @@ object DifftestMain extends App {
         case Nil                            => param
         case "--profile" :: str :: tail     => nextOption(param.copy(profile = Some(str)), tail)
         case "--num-cores" :: value :: tail => nextOption(param.copy(numCores = value.toInt), tail)
+        case "--trace-drive" :: tail        => nextOption(param.copy(traceDrive = true), tail)
         case option :: tail =>
           firrtlOpts :+= option
           nextOption(param, tail)
@@ -105,7 +118,7 @@ object DifftestMain extends App {
   val newArgs = DifftestModule.parseArgs(args)
   val (param, firrtlOpts) = parseArgs(newArgs)
   val gen = if (param.profile.isDefined) { () =>
-    new SimTop(param.profile.get, param.numCores)
+    new SimTop(param.profile.get, param.numCores, param.traceDrive)
   } else { () =>
     new DifftestTop
   }

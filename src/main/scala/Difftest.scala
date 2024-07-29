@@ -49,7 +49,8 @@ trait DiffTestIsInherited { this: DifftestBundle =>
   }
 }
 
-sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: DifftestBaseBundle =>
+sealed trait DifftestBundle extends Bundle with DifftestWithCoreid {
+  this: DifftestBaseBundle =>
   def bits: DifftestBaseBundle = this
 
   // Used to detect the number of cores. Must be used only by one Bundle.
@@ -102,6 +103,7 @@ sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: Difft
     val macroName = s"CONFIG_DIFFTEST_${desiredModuleName.toUpperCase.replace("DIFFTEST", "")}"
     s"#define $macroName"
   }
+
   def toCppDeclaration(packed: Boolean): String = {
     val cpp = ListBuffer.empty[String]
     val attribute = if (packed) "__attribute__((packed))" else ""
@@ -118,6 +120,22 @@ sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: Difft
     cpp.mkString("\n")
   }
 
+  def toTraceDeclaration: String = {
+    def byteWidth(data: Data) = (data.getWidth + 7) / 8 * 8
+    val cpp = ListBuffer.empty[String]
+    cpp += "typedef struct __attribute__((packed)) {"
+    elements.toSeq.reverse.foreach { case (name, data) =>
+      val (typeWidth, arrSuffix) = data match {
+        case v: Vec[_] => (byteWidth(v.head), s"[${v.length}]")
+        case u: UInt   => (byteWidth(u), "")
+        case _         => println(s"Unknown type: ($name, $data)")
+      }
+      cpp += f"  ${s"uint${typeWidth}_t"}%-8s $name$arrSuffix;"
+    }
+    cpp += s"} ${desiredModuleName.replace("Difftest", "DiffTrace")};"
+    cpp.mkString("\n")
+  }
+
   def toJsonProfile: Map[String, Any] = Map("className" -> this.getClass.getName)
 
   // returns a Seq indicating the udpate dependencies. Default: empty
@@ -126,14 +144,18 @@ sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: Difft
 
   // returns Bool indicating whether `this` bundle can be squashed with `base`
   def supportsSquash(base: DifftestBundle): Bool = supportsSquashBase
+
   def supportsSquashBase: Bool = if (hasValid) !getValid else true.B
+
   // returns a seq of Group name of this bundle, Default: REF
   // Only bundles with same GroupName will affect others' squash state.
   // Some bundle will have several GroupName, such as LoadEvent
   // Optional GroupName: REF / GOLDENMEM
   val squashGroup: Seq[String] = Seq("REF")
+
   // returns a squashed, right-value Bundle. Default: overriding `base` with `this`
   def squash(base: DifftestBundle): DifftestBundle = this
+
   def squashQueue: Boolean = false
 
   // When enable squash, we append valid signal for DifftestBundle
@@ -143,7 +165,47 @@ sealed trait DifftestBundle extends Bundle with DifftestWithCoreid { this: Difft
     gen.bits := this
     gen
   }
+
   def genValidBundle: Valid[DifftestBundle] = genValidBundle(this.getValid)
+
+  // Byte align all elements
+  def getByteAlign(isTrace: Boolean): UInt = {
+    def byteAlign(data: Data): UInt = {
+      val width: Int = (data.getWidth + 7) / 8 * 8
+      data.asTypeOf(UInt(width.W))
+    }
+
+    MixedVecInit(
+      this.elements.toSeq.reverse
+        .filterNot(this.isFlatten && _._1 == "valid" && !isTrace)
+        .flatMap { case (_, data) =>
+          data match {
+            case vec: Vec[_] => vec.map(byteAlign(_))
+            case _           => Seq(byteAlign(data))
+          }
+        }
+    ).asUInt
+  }
+  def getByteAlign: UInt = getByteAlign(false)
+  def getByteAlignWidth(isTrace: Boolean): Int = WireInit(0.U.asTypeOf(this)).getByteAlign(isTrace).getWidth
+  def reverseByteAlign(aligned: UInt, isTrace: Boolean): DifftestBundle = {
+    require(aligned.getWidth == this.getByteAlignWidth(isTrace))
+    val bundle = WireInit(0.U.asTypeOf(this))
+    val byteSeq = aligned.asTypeOf(Vec(aligned.getWidth / 8, UInt(8.W)))
+    val elems = bundle.elements.toSeq.reverse
+      .filterNot(this.isFlatten && _._1 == "valid" && !isTrace)
+      .flatMap { case (_, data) =>
+        data match {
+          case vec: Vec[_] => vec.toSeq
+          case _ => Seq(data)
+        }
+      }.map{d => (d, (d.getWidth + 7) / 8)}
+    elems.zipWithIndex.foreach{ case ((data, size), idx) =>
+      val offset = elems.map(_._2).take(idx).sum
+      data := MixedVecInit(byteSeq.slice(offset, offset + size).toSeq).asUInt
+    }
+    bundle
+  }
 }
 
 class DiffArchEvent extends ArchEvent with DifftestBundle {
@@ -393,8 +455,8 @@ object DifftestModule {
     difftest
   }
 
-  def finish(cpu: String, createTopIO: Boolean): Option[DifftestTopIO] = {
-    val gateway = Gateway.collect()
+  def finish(cpu: String, createTopIO: Boolean, traceDrive: Boolean): Option[DifftestTopIO] = {
+    val gateway = Gateway.collect(traceDrive)
     cppMacros ++= gateway.cppMacros
     vMacros ++= gateway.vMacros
     instances ++= gateway.instances

@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-class DiffTrace {
+template <typename T> class DiffTrace {
 public:
   char trace_name[32];
   bool is_read;
@@ -17,13 +17,13 @@ public:
       free(buffer);
     }
   }
-  bool append(const DiffTestState *trace);
-  bool read_next(DiffTestState *trace);
+  bool append(const T *trace);
+  bool read_next(T *trace);
 
 private:
   uint64_t buffer_size;
   uint64_t buffer_count = 0;
-  DiffTestState *buffer = nullptr;
+  T *buffer = nullptr;
 
   bool trace_file_next();
 };
