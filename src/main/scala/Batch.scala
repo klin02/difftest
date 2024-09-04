@@ -136,13 +136,22 @@ class BatchEndpoint(bundles: Seq[Valid[DifftestBundle]], config: GatewayConfig) 
   BatchInterval.id := Batch.getTemplate.length.U
   val step_data = dataCollect_vec.last
   val step_info = Cat(infoCollect_vec.last, BatchInterval.asUInt)
+  val step_stats_vec = {
+    val collected = statsCollect_vec.zipWithIndex.map{ case (stats, idx) =>
+      Delayer(stats, inCollect.length - idx - 1)
+    }
+    val appended = VecInit(collected)
+    appended.last.info_len := collected.last.info_len + (param.infoWidth / 8).U
+    appended
+  }
 
   // Assemble collected data from different cycles
   val assembler = Module(new BatchAssembler(step_data.getWidth, step_info.getWidth, inCollect.length, param, config))
   assembler.step_data := step_data
   assembler.step_info := step_info
-  assembler.step_stats.data_len := statsCollect_vec.last.data_len
-  assembler.step_stats.info_len := statsCollect_vec.last.info_len + (param.infoWidth / 8).U
+  assembler.step_stats_vec := step_stats_vec
+//  assembler.step_stats.data_len := statsCollect_vec.last.data_len
+//  assembler.step_stats.info_len := statsCollect_vec.last.info_len + (param.infoWidth / 8).U
 //  assert(step_data_len <= param.MaxDataByteLen.U)
 //  assert(step_info_len <= param.MaxInfoByteLen.U)
 
@@ -224,14 +233,14 @@ class BatchCollector(
 class BatchAssembler(
   step_data_w: Int,
   step_info_w: Int,
-  step_length: Int,
+  collect_length: Int,
   param: BatchParam,
   config: GatewayConfig,
 ) extends Module {
   val enable = IO(Input(Bool()))
   val step_data = IO(Input(UInt(step_data_w.W)))
   val step_info = IO(Input(UInt(step_info_w.W)))
-  val step_stats = IO(Input(new BatchStats(param.ByteLenWidth)))
+  val step_stats_vec = IO(Input(Vec(collect_length, new BatchStats(param.ByteLenWidth))))
   val step_trace_info = Option.when(config.hasReplay)(IO(Input(new DiffTraceInfo(config))))
 
   val state_data = RegInit(0.U(param.MaxDataBitLen.W))
@@ -240,35 +249,40 @@ class BatchAssembler(
   val state_step_cnt = RegInit(0.U(config.stepWidth.W))
   val state_trace_size = Option.when(config.hasReplay)(RegInit(0.U(param.ByteLenWidth.W)))
 
-  val data_exceed = enable && (state_stats.data_len +& step_stats.data_len > param.MaxDataByteLen.U)
-  val info_exceed =
-    enable && (state_stats.info_len +& step_stats.info_len + (param.infoWidth / 8).U > param.MaxInfoByteLen.U)
+  val data_limit = param.MaxDataByteLen.U -& state_stats.data_len
+  val info_limit = (param.MaxInfoByteLen - param.infoWidth / 8).U -& state_stats.info_len
+  val data_exceed_vec = VecInit(step_stats_vec.map(_.data_len > data_limit && enable))
+  val info_exceed_vec = VecInit(step_stats_vec.map(_.info_len > info_limit && enable))
+
+//  val data_exceed = enable && (state_stats.data_len +& step_stats.data_len > param.MaxDataByteLen.U)
+//  val info_exceed =
+//    enable && (state_stats.info_len +& step_stats.info_len + (param.infoWidth / 8).U > param.MaxInfoByteLen.U)
   val step_exceed = enable && (state_step_cnt === config.batchSize.U)
   val trace_exceed = Option.when(config.hasReplay) {
-    enable && (state_trace_size.get +& step_trace_info.get.trace_size +& step_length.U >= config.replaySize.U)
+    enable && (state_trace_size.get +& step_trace_info.get.trace_size +& collect_length.U >= config.replaySize.U)
   }
   if (config.hasBuiltInPerf) {
-    DifftestPerf("BatchExceed_data", data_exceed.asUInt)
-    DifftestPerf("BatchExceed_info", info_exceed.asUInt)
+    DifftestPerf("BatchExceed_data", data_exceed_vec.asUInt.orR)
+    DifftestPerf("BatchExceed_info", info_exceed_vec.asUInt.orR)
     DifftestPerf("BatchExceed_step", step_exceed.asUInt)
     if (config.hasReplay) DifftestPerf("BatchExceed_trace", trace_exceed.get.asUInt)
   }
 
   val in_replay = Option.when(config.hasReplay)(step_trace_info.get.in_replay)
   val should_tick =
-    data_exceed || info_exceed || step_exceed || trace_exceed.getOrElse(false.B) || in_replay.getOrElse(false.B)
+    data_exceed_vec.asUInt.orR || info_exceed_vec.asUInt.orR || step_exceed || trace_exceed.getOrElse(false.B) || in_replay.getOrElse(false.B)
   when(enable) {
     when(should_tick) {
       state_data := step_data
       state_info := step_info
-      state_stats := step_stats
+      state_stats := step_stats_vec.last
       state_step_cnt := 1.U
       if (config.hasReplay) state_trace_size.get := step_trace_info.get.trace_size
     }.otherwise {
       state_data := state_data | step_data << (state_stats.data_len << 3)
       state_info := state_info | step_info << (state_stats.info_len << 3)
-      state_stats.data_len := state_stats.data_len + step_stats.data_len
-      state_stats.info_len := state_stats.info_len + step_stats.info_len
+      state_stats.data_len := state_stats.data_len + step_stats_vec.last.data_len
+      state_stats.info_len := state_stats.info_len + step_stats_vec.last.info_len
       state_step_cnt := state_step_cnt + 1.U
       if (config.hasReplay) state_trace_size.get := state_trace_size.get + step_trace_info.get.trace_size
     }
