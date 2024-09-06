@@ -94,20 +94,12 @@ abstract class DPICBase(config: GatewayConfig) extends ExtModule with HasExtModu
        |""".stripMargin
   }
 
-  def internalStep: String = if (config.hasInternalStep)
-    """
-      |extern void simv_nstep(uint8_t step);
-      |simv_nstep(step);
-      |""".stripMargin
-  else ""
-
   def dpicFunc: String =
     s"""
        |$dpicFuncProto {
        |  if (!diffstate_buffer) return;
        |$perfCnt
        |  ${dpicFuncAssigns.mkString("\n  ")}
-       |  $internalStep
        |}
        |""".stripMargin
 
@@ -242,9 +234,8 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |  enum DifftestBundleType {
            |  ${bundleEnum.mkString(",\n  ")}
            |  };
-           |
-           |  uint64_t offset = 0;
-           |  uint32_t dut_index = 0;
+           |  extern void simv_nstep(uint32_t step);
+           |  static uint32_t dut_index = 0;
            |  $infoDecl
            |  memcpy(info, io_info, sizeof(info));
            |  uint8_t* data = (uint8_t*)io_data;
@@ -252,15 +243,19 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |    uint8_t id = info[i].id;
            |    uint8_t num = info[i].num;
            |    uint32_t coreid, index, address;
+           |    //printf("id: %d num: %d\\n", id, num);
            |    if (id == BatchFinish) {
+           |      simv_nstep(num);
            |      break;
            |    }
-           |    else if (id == BatchInterval && i != 0) {
-           |      dut_index ++;
+           |    else if (id == BatchInterval) {
+           |      dut_index = (dut_index + 1) % CONFIG_DIFFTEST_BATCH_SIZE;
+           |      // simv_nstep(1);
            |      continue;
            |    }
            |    $bundleAssign
            |  }
+           |  // printf("batch end\\n");
            |""".stripMargin)
   }
 
@@ -349,7 +344,7 @@ object DPIC {
         |  }
         |  inline DiffTestState* next() {
         |    DiffTestState* ret = buffer[zone_ptr] + read_ptr;
-        |    read_ptr = read_ptr + 1;
+        |    read_ptr = (read_ptr + 1) % CONFIG_DIFFTEST_BUFLEN;
         |    return ret;
         |  }
         |  inline void switch_zone() {

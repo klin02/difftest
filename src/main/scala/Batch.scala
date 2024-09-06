@@ -135,7 +135,8 @@ class BatchEndpoint(bundles: Seq[Valid[DifftestBundle]], config: GatewayConfig) 
   val BatchInterval = WireInit(0.U.asTypeOf(new BatchInfo))
   BatchInterval.id := Batch.getTemplate.length.U
   val step_data = dataCollect_vec.last
-  val step_info = Cat(infoCollect_vec.last, BatchInterval.asUInt)
+//  val step_info = Cat(BatchInterval.asUInt, infoCollect_vec.last)
+  val step_info = infoCollect_vec.last | BatchInterval.asUInt << (statsCollect_vec.last.info_len << 3)
   val step_stats_vec = {
     val collected = statsCollect_vec.zipWithIndex.map{ case (stats, idx) =>
       Delayer(stats, inCollect.length - idx - 1)
@@ -215,8 +216,10 @@ class BatchCollector(
   }.toSeq).reduce(_ | _)
 
   when(delay_valid.asUInt.orR) {
-    data_state := (data_base << MuxLookup(valid_num, 0.U)(offset_map)).asUInt | data_site
-    info_state := Cat(info_base, info.asUInt)
+//    data_state := (data_base << MuxLookup(valid_num, 0.U)(offset_map)).asUInt | data_site
+//    info_state := Cat(info_base, info.asUInt)
+    data_state := data_base | (data_site << (stats_base.data_len << 3))
+    info_state := info_base | (info.asUInt << (stats_base.info_len << 3))
     stats_state.data_len := stats_base.data_len + MuxLookup(valid_num, 0.U)(dataLen_map)
     stats_state.info_len := stats_base.info_len + (param.infoWidth / 8).U
   }.otherwise {
@@ -271,11 +274,51 @@ class BatchAssembler(
   val in_replay = Option.when(config.hasReplay)(step_trace_info.get.in_replay)
   val should_tick =
     data_exceed_vec.asUInt.orR || info_exceed_vec.asUInt.orR || step_exceed || trace_exceed.getOrElse(false.B) || in_replay.getOrElse(false.B)
+
+  val exceed_vec = VecInit(data_exceed_vec.zip(info_exceed_vec).map{ case (de, ie) => de | ie})
+  // extract last non-exceed stats
+  val split_stats = VecInit(step_stats_vec.dropRight(1).zipWithIndex.map{ case (stats, idx) =>
+    val mask = exceed_vec(idx) ^ exceed_vec(idx + 1)
+    Mux(mask, stats.asUInt, 0.U)
+  }).reduce(_ | _).asTypeOf(new BatchStats(param.ByteLenWidth))
+
+  val concat_data = ((1.U << (split_stats.data_len << 3).asUInt).asUInt - 1.U) & step_data
+  val concat_info = ((1.U << (split_stats.info_len << 3).asUInt).asUInt - 1.U) & step_info
+  val remain_data = step_data >> (split_stats.data_len << 3)
+  val remain_info = step_info >> (split_stats.info_len << 3)
+  val info = step_info.asTypeOf(Vec(collect_length, new BatchInfo))
+//  when(exceed_vec.asUInt.orR) {
+////    printf(p"info: ${exceed_vec.asUInt}\n")
+////    printf(p"${step_stats_vec.last.data_len}\n")
+////    printf(p"${split_stats.data_len}\n")
+////    printf("%d\n", step_stats_vec.last.data_len)
+////    printf("%d\n", split_stats.data_len)
+//    step_stats_vec.foreach(s => printf("%d ", s.data_len))
+////    printf(p"${remain_data(231, 224)}\n")
+////    printf(p"${remain_data(487, 480)}\n")
+////    printf(p"${remain_data(1647, 1640)}\n")
+////    printf(p"${step_data(2287, 2280)}\n")
+////    printf(p"${step_data(2543, 2536)}\n")
+////    printf(p"${step_data(3703, 3696)}\n")
+//////    info.foreach(i => printf(p"${i.id} "))
+////    printf("%x\n", step_data)
+//////    printf("%x\n", concat_data(8000, 0))
+//////    printf("%x\n", remain_data)
+////
+////    printf("%x\n", step_info(3999, 0))
+////    printf("%x\n", concat_info(3999, 0))
+////    printf("%x\n", remain_info(3999, 0))
+//  }
+
   when(enable) {
     when(should_tick) {
-      state_data := step_data
-      state_info := step_info
-      state_stats := step_stats_vec.last
+//      state_data := step_data
+//      state_info := step_info
+//      state_stats := step_stats_vec.last
+      state_data := remain_data
+      state_info := remain_info
+      state_stats.data_len := step_stats_vec.last.data_len -& split_stats.data_len
+      state_stats.info_len := step_stats_vec.last.info_len -& split_stats.info_len
       state_step_cnt := 1.U
       if (config.hasReplay) state_trace_size.get := step_trace_info.get.trace_size
     }.otherwise {
@@ -290,9 +333,14 @@ class BatchAssembler(
 
   val BatchFinish = WireInit(0.U.asTypeOf(new BatchInfo))
   BatchFinish.id := (Batch.getTemplate.length + 1).U
+  BatchFinish.num := state_step_cnt
+  val is_concated = exceed_vec.asUInt.orR
   val out = IO(Output(new BatchOutput(chiselTypeOf(state_data), chiselTypeOf(state_info), config)))
-  out.io.data := state_data
-  out.io.info := state_info | BatchFinish.asUInt << (state_stats.info_len << 3)
+//  out.io.data := state_data
+//  out.io.info := state_info | BatchFinish.asUInt << (state_stats.info_len << 3)
+  out.io.data := state_data | Mux(is_concated, concat_data << (state_stats.data_len << 3), 0.U)
+  val fin_offset = state_stats.info_len + Mux(is_concated, split_stats.info_len, 0.U)
+  out.io.info := state_info | Mux(is_concated, concat_info << (state_stats.info_len << 3), 0.U) | BatchFinish.asUInt << (fin_offset << 3)
   out.enable := should_tick
   out.step := Mux(out.enable, state_step_cnt, 0.U)
 }
