@@ -235,7 +235,7 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |  ${bundleEnum.mkString(",\n  ")}
            |  };
            |  extern void simv_nstep(uint32_t step);
-           |  static uint32_t dut_index = 0;
+           |  static int dut_index = -1;
            |  $infoDecl
            |  memcpy(info, io_info, sizeof(info));
            |  uint8_t* data = (uint8_t*)io_data;
@@ -243,13 +243,14 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |    uint8_t id = info[i].id;
            |    uint8_t num = info[i].num;
            |    uint32_t coreid, index, address;
-           |    //printf("id: %d num: %d\\n", id, num);
+           |    // printf("id: %d num: %d\\n", id, num);
            |    if (id == BatchFinish) {
            |      simv_nstep(num);
            |      break;
            |    }
            |    else if (id == BatchInterval) {
            |      dut_index = (dut_index + 1) % CONFIG_DIFFTEST_BATCH_SIZE;
+           |      // printf("index %d\\n",dut_index);
            |      // simv_nstep(1);
            |      continue;
            |    }
