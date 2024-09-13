@@ -243,20 +243,20 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |    uint8_t id = info[i].id;
            |    uint8_t num = info[i].num;
            |    uint32_t coreid, index, address;
-           |    // printf("id: %d num: %d\\n", id, num);
+           |     //printf("id: %d num: %d\\n", id, num);
            |    if (id == BatchFinish) {
            |      simv_nstep(num);
            |      break;
            |    }
            |    else if (id == BatchInterval) {
            |      dut_index = (dut_index + 1) % CONFIG_DIFFTEST_BATCH_SIZE;
-           |      // printf("index %d\\n",dut_index);
+           |       // printf("index %d\\n",dut_index);
            |      // simv_nstep(1);
            |      continue;
            |    }
            |    $bundleAssign
            |  }
-           |  // printf("batch end\\n");
+           |  // printf("==========batch end\\n");
            |""".stripMargin)
   }
 
