@@ -239,11 +239,12 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |  $infoDecl
            |  memcpy(info, io_info, sizeof(info));
            |  uint8_t* data = (uint8_t*)io_data;
-           |  for (int i = 0; i < $infoLen; i++) {
+           |  int i=0;
+           |  for (; i < $infoLen; i++) {
            |    uint8_t id = info[i].id;
            |    uint8_t num = info[i].num;
            |    uint32_t coreid, index, address;
-           |     //printf("id: %d num: %d\\n", id, num);
+           |      // printf("id: %d num: %d\\n", id, num);
            |    if (id == BatchFinish) {
            |      simv_nstep(num);
            |      break;
@@ -256,7 +257,7 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |    }
            |    $bundleAssign
            |  }
-           |  // printf("==========batch end\\n");
+           |    // printf("==========batch end: i %d\\n", i);
            |""".stripMargin)
   }
 
