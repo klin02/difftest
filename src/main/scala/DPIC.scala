@@ -247,20 +247,23 @@ class DPICBatch(template: Seq[DifftestBundle], batchIO: BatchIO, config: Gateway
            |  ${bundleEnum.mkString(",\n  ")}
            |  };
            |  extern void simv_nstep(uint8_t step);
-           |  uint32_t dut_index = 0;
+           |  static int dut_index = -1;
            |  $batchDecl
            |  for (int i = 0; i < $infoLen; i++) {
            |    uint8_t id = info[i].id;
            |    uint8_t num = info[i].num;
            |    uint32_t coreid, index, address;
+           |      // printf("id: %d num: %d\\n", id, num);
            |    if (id == BatchFinish) {
            |#ifdef CONFIG_DIFFTEST_INTERNAL_STEP
            |      simv_nstep(num);
            |#endif // CONFIG_DIFFTEST_INTERNAL_STEP
            |      break;
            |    }
-           |    else if (id == BatchInterval && i != 0) {
-           |      dut_index ++;
+           |    else if (id == BatchInterval) {
+           |      dut_index = (dut_index + 1) % CONFIG_DIFFTEST_BATCH_SIZE;
+           |       // printf("index %d\\n",dut_index);
+           |      // simv_nstep(1);
            |      continue;
            |    }
            |    $bundleAssign
@@ -352,7 +355,7 @@ object DPIC {
         |  }
         |  inline DiffTestState* next() {
         |    DiffTestState* ret = buffer[zone_ptr] + read_ptr;
-        |    read_ptr = read_ptr + 1;
+        |    read_ptr = (read_ptr + 1) % CONFIG_DIFFTEST_BUFLEN;
         |    return ret;
         |  }
         |  inline void switch_zone() {

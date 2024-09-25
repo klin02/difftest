@@ -329,7 +329,7 @@ extern "C" uint8_t simv_nstep(uint8_t step) {
 #endif // CONFIG_DIFFTEST_PERFCNT
 
 #ifndef CONFIG_NO_DIFFTEST
-  difftest_switch_zone();
+//   difftest_switch_zone();
 #endif // CONFIG_NO_DIFFTEST
 
   for (int i = 0; i < step; i++) {
