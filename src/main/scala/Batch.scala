@@ -301,8 +301,10 @@ class BatchAssembler(
   val delay_step_stats = RegNext(step_stats_vec.last)
   val delay_concat_data = delay_step_data >> (delay_remain_stats.data_len << 3)
   val delay_concat_info = delay_step_info >> (delay_remain_stats.info_len << 3)
-  val delay_remain_data = ((1.U << (delay_remain_stats.data_len << 3).asUInt).asUInt - 1.U) & delay_step_data
-  val delay_remain_info = ((1.U << (delay_remain_stats.info_len << 3).asUInt).asUInt - 1.U) & delay_step_info
+//  val delay_remain_data = ((1.U << (delay_remain_stats.data_len << 3).asUInt).asUInt - 1.U) & delay_step_data
+//  val delay_remain_info = ((1.U << (delay_remain_stats.info_len << 3).asUInt).asUInt - 1.U) & delay_step_info
+  val delay_remain_data = (~(~0.U(step_data_w.W) << (delay_remain_stats.data_len << 3).asUInt)).asUInt & delay_step_data
+  val delay_remain_info = (~(~0.U(step_info_w.W) << (delay_remain_stats.info_len << 3).asUInt)).asUInt & delay_step_info
   
   val BatchInterval = WireInit(0.U.asTypeOf(new BatchInfo))
   BatchInterval.id := Batch.getTemplate.length.U
