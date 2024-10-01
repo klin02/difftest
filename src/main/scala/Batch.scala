@@ -203,17 +203,24 @@ class BatchCollector(
   info.id := Batch.getBundleID(bundleType.bits).U
   info.num := valid_num
 
-  val offset_map = (0 to length).map(i => i.U -> (i * alignWidth).U)
+  def get_offset(index: UInt, base: UInt): UInt = {
+    val offset_map = (0 to length).map(i => i.U -> (base << (i * alignWidth)).asUInt)
+    MuxLookup(index, 0.U)(offset_map)
+  }
+//  val offset_map = (0 to length).map(i => i.U -> (i * alignWidth).U)
   val dataLen_map = (0 to length).map(i => i.U -> (i * alignWidth / 8).U)
 
   val data_site = WireInit(0.U((alignWidth * length).W))
   data_site := VecInit(delay_data.zipWithIndex.map { case (d, idx) =>
-    val offset = if (idx == 0) 0.U else MuxLookup(PopCount(delay_valid.take(idx)), 0.U)(offset_map)
-    Mux(delay_valid(idx), (d << offset).asUInt, 0.U)
+    val offset_index = if (idx == 0) 0.U else PopCount(delay_valid.take(idx))
+    val offset_data = get_offset(offset_index, d)
+//    val offset = if (idx == 0) 0.U else MuxLookup(PopCount(delay_valid.take(idx)), 0.U)(offset_map)
+    Mux(delay_valid(idx), offset_data, 0.U)
   }.toSeq).reduce(_ | _)
 
   when(delay_valid.asUInt.orR) {
-    data_state := (data_base << MuxLookup(valid_num, 0.U)(offset_map)).asUInt | data_site
+//    data_state := (data_base << MuxLookup(valid_num, 0.U)(offset_map)).asUInt | data_site
+    data_state := get_offset(valid_num, data_base) | data_site
     info_state := Cat(info_base, info.asUInt)
     stats_state.data_len := stats_base.data_len + MuxLookup(valid_num, 0.U)(dataLen_map)
     stats_state.info_len := stats_base.info_len + (param.infoWidth / 8).U
@@ -295,8 +302,9 @@ class BatchAssembler(
   val delay_step_stats = RegNext(step_stats_vec.last)
   val delay_concat_data = delay_step_data >> (delay_remain_stats.data_len << 3)
   val delay_concat_info = delay_step_info >> (delay_remain_stats.info_len << 3)
-  val delay_remain_data = (~(~0.U(step_data_w.W) << (delay_remain_stats.data_len << 3).asUInt)).asUInt & delay_step_data
-  val delay_remain_info = (~(~0.U(step_info_w.W) << (delay_remain_stats.info_len << 3).asUInt)).asUInt & delay_step_info
+  // Note we need only lowest bits to update state, truncate high bits to reduce gates
+  val delay_remain_data = (~(~0.U(param.TruncDataBitLen.W) << (delay_remain_stats.data_len << 3).asUInt)).asUInt & delay_step_data
+  val delay_remain_info = (~(~0.U(param.TruncInfoBitLen.W) << (delay_remain_stats.info_len << 3).asUInt)).asUInt & delay_step_info
 
   val delay_enable = RegNext(enable)
   val delay_step_exceed = delay_enable && (state_step_cnt === config.batchSize.U)
