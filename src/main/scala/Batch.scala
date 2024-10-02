@@ -43,6 +43,8 @@ case class BatchParam(config: GatewayConfig, collectDataWidth: Int, collectLengt
   // Truncate width when shifting to reduce useless gates
   val TruncDataBitLen = math.min(MaxDataBitLen, collectDataWidth)
   val TruncInfoBitLen = math.min(MaxInfoBitLen, collectInfoWidth)
+  val TruncDataLenWidth = math.min(MaxDataLenWidth, StatsDataLenWidth)
+  val TruncInfoLenWidth = math.min(MaxInfoLenWidth, StatsInfoLenWidth)
 }
 
 class BatchIO(dataType: UInt, infoType: UInt) extends Bundle {
@@ -295,8 +297,9 @@ class BatchAssembler(
   val delay_step_stats = RegNext(step_stats_vec.last)
   val delay_concat_data = delay_step_data >> (delay_remain_stats.data_len << 3)
   val delay_concat_info = delay_step_info >> (delay_remain_stats.info_len << 3)
-  val delay_remain_data = (~(~0.U(step_data_w.W) << (delay_remain_stats.data_len << 3).asUInt)).asUInt & delay_step_data
-  val delay_remain_info = (~(~0.U(step_info_w.W) << (delay_remain_stats.info_len << 3).asUInt)).asUInt & delay_step_info
+  // Note we need only lowest bits to update state, truncate high bits to reduce gates
+  val delay_remain_data = (~(~0.U(param.TruncDataBitLen.W) << (delay_remain_stats.data_len(param.TruncDataLenWidth - 1, 0) << 3).asUInt)).asUInt & delay_step_data
+  val delay_remain_info = (~(~0.U(param.TruncInfoBitLen.W) << (delay_remain_stats.info_len(param.TruncInfoLenWidth - 1, 0) << 3).asUInt)).asUInt & delay_step_info
 
   val delay_enable = RegNext(enable)
   val delay_step_exceed = delay_enable && (state_step_cnt === config.batchSize.U)
@@ -330,7 +333,7 @@ class BatchAssembler(
     Cat(
       delay_concat_info,
       BatchInterval.asUInt,
-    ) | BatchFinish.asUInt << ((delay_concat_stats.info_len + (param.infoWidth / 8).U) << 3),
+    ) | BatchFinish.asUInt << ((delay_concat_stats.info_len + (param.infoWidth / 8).U)(param.TruncInfoLenWidth - 1, 0) << 3),
     BatchFinish.asUInt,
   )
   out.io.info := state_info | append_info(param.TruncInfoBitLen - 1, 0) << (state_info_len << 3)
