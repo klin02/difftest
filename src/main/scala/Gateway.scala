@@ -29,6 +29,7 @@ import difftest.replay.Replay
 import difftest.trace.Trace
 import difftest.util.VerificationExtractor
 import difftest.validate.Validate
+import ujson.IndexedValue.False
 
 import scala.collection.mutable.ListBuffer
 
@@ -64,7 +65,7 @@ case class GatewayConfig(
   def needTraceInfo: Boolean = hasReplay
   def needEndpoint: Boolean =
     hasGlobalEnable || hasDutZone || isBatch || isSquash || hierarchicalWiring || traceDump || traceLoad
-  def needPreprocess: Boolean = hasDutZone || isBatch || isSquash || needTraceInfo
+  def needPreprocess: Boolean = false
   // Macros Generation for Cpp and Verilog
   def cppMacros: Seq[String] = {
     val macros = ListBuffer.empty[String]
