@@ -26,6 +26,9 @@
 #include <condition_variable>
 #include <getopt.h>
 #include <mutex>
+#ifdef FPGA_SIM
+#include "xdma_sim.h"
+#endif // FPGA_SIM
 
 void fpga_finish();
 
@@ -95,7 +98,7 @@ void fpga_init() {
 }
 
 void fpga_finish() {
-  free(xdma_device);
+  delete(xdma_device);
   common_finish();
 
   difftest_finish();

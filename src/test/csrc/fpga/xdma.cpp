@@ -28,10 +28,16 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define XDMA_USER       "/dev/xdma0_user"
-#define XDMA_BYPASS     "/dev/xdma0_bypass"
-#define XDMA_C2H_DEVICE "/dev/xdma0_c2h_"
-#define XDMA_H2C_DEVICE "/dev/xdma0_h2c_0"
+#ifdef FPGA_SIM
+#define XDMA_DIR      "/tmp/xdma_sim/"
+#else
+#define XDMA_DIR      "/dev/"
+#endif // FPGA_SIM
+
+#define XDMA_USER       XDMA_DIR "xdma0_user"
+#define XDMA_BYPASS     XDMA_DIR "xdma0_bypass"
+#define XDMA_C2H_DEVICE XDMA_DIR "xdma0_c2h_"
+#define XDMA_H2C_DEVICE XDMA_DIR "xdma0_h2c_0"
 
 void signal_handler(int sig) {
   void *array[20];
@@ -50,18 +56,20 @@ template <typename Func, typename Obj, typename... Args> void thread_wrapper(Fun
 
 FpgaXdma::FpgaXdma() : xdma_mempool(sizeof(FpgaPackgeHead)) {
   signal(SIGINT, handle_sigint);
-
-  for (int i = 0; i < CONFIG_DMA_CHANNELS; i++) {
-    char c2h_device[64];
-    sprintf(c2h_device, "%s%d", XDMA_C2H_DEVICE, i);
-    xdma_c2h_fd[i] = open(c2h_device, O_RDONLY);
-    if (xdma_c2h_fd[i] == -1) {
-      std::cout << c2h_device << std::endl;
-      perror("Failed to open XDMA device");
-      exit(-1);
-    }
-    std::cout << "XDMA link " << c2h_device << std::endl;
-  }
+#ifdef FPGA_SIM
+  xdma_sim_init(true);
+#endif
+  // for (int i = 0; i < CONFIG_DMA_CHANNELS; i++) {
+  //   char c2h_device[64];
+  //   sprintf(c2h_device, "%s%d", XDMA_C2H_DEVICE, i);
+  //   xdma_c2h_fd[i] = open(c2h_device, O_RDONLY);
+  //   if (xdma_c2h_fd[i] == -1) {
+  //     std::cout << c2h_device << std::endl;
+  //     perror("Failed to open XDMA device");
+  //     exit(-1);
+  //   }
+  //   std::cout << "XDMA link " << c2h_device << std::endl;
+  // }
 #ifdef CONFIG_USE_XDMA_H2C
   xdma_h2c_fd = open(XDMA_H2C_DEVICE, O_WRONLY);
   if (xdma_h2c_fd == -1) {
@@ -170,13 +178,10 @@ void FpgaXdma::read_xdma_thread(int channel) {
   FpgaPackgeHead *packge = (FpgaPackgeHead *)posix_memalignd_malloc(sizeof(FpgaPackgeHead));
   memset(packge, 0, sizeof(FpgaPackgeHead));
   while (running) {
-    size_t size = read(xdma_c2h_fd[channel], packge, sizeof(FpgaPackgeHead));
+    // size_t size = read(xdma_c2h_fd[channel], packge, sizeof(FpgaPackgeHead));
+    size_t size = xdma_sim_read((char *)packge, sizeof(FpgaPackgeHead));
     for (size_t i = 0; i < DMA_PACKGE_NUM; i++) {
-#ifdef CONFIG_DIFFTEST_BATCH
       v_difftest_Batch(packge->diff_packge[i].diff_packge);
-#elif defined(CONFIG_DIFFTEST_SQUASH)
-      //TODO: need automatically generates squash data parsing implementations
-#endif // CONFIG_DIFFTEST_BATCH
     }
   }
   free(packge);

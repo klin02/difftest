@@ -27,6 +27,9 @@
 #include <sys/shm.h>
 #include <thread>
 #include <vector>
+#ifdef FPGA_SIM
+#include "xdma_sim.h"
+#endif // FPGA_SIM
 
 #ifdef CONFIG_DIFFTEST_BATCH
 #define DMA_DIFF_PACKGE_LEN (CONFIG_DIFFTEST_BATCH_BYTELEN)
@@ -59,18 +62,11 @@ public:
   FpgaXdma();
   ~FpgaXdma() {
     stop_thansmit_thread();
+#ifdef FPGA_SIM
+    xdma_sim_finish(true);
+#endif
   };
 
-  void core_reset() {
-    device_write(false, nullptr, 0x20000, 0x1);
-    device_write(false, nullptr, 0x100000, 0x1);
-    device_write(false, nullptr, 0x10000, 0x8);
-  }
-
-  void core_restart() {
-    device_write(false, nullptr, 0x20000, 0);
-    device_write(false, nullptr, 0x100000, 0);
-  }
 
   void ddr_load_workload(const char *workload) {
     core_reset();
@@ -106,6 +102,16 @@ private:
 #endif
 
   static void handle_sigint(int sig);
+  void core_reset() {
+    device_write(false, nullptr, 0x20000, 0x1);
+    device_write(false, nullptr, 0x100000, 0x1);
+    device_write(false, nullptr, 0x10000, 0x8);
+  }
+
+  void core_restart() {
+    device_write(false, nullptr, 0x20000, 0);
+    device_write(false, nullptr, 0x100000, 0);
+  }
 };
 
 #endif

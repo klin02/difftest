@@ -28,6 +28,20 @@ VCS_CXXFILES  = $(SIM_CXXFILES) $(shell find $(VCS_CSRC_DIR) -name "*.cpp")
 VCS_CXXFLAGS  = $(SIM_CXXFLAGS) -I$(VCS_CSRC_DIR) -DNUM_CORES=$(NUM_CORES)
 VCS_LDFLAGS   = $(SIM_LDFLAGS) -lpthread -ldl
 
+VCS_VSRC_DIR 	= $(abspath ./src/test/vsrc/vcs)
+VCS_VFILES    = $(SIM_VSRC) $(shell find $(VCS_VSRC_DIR) -name "*.v" -or -name "*.sv")
+
+# FPGA simulate support
+ifeq ($(FPGA_SIM),1)
+FPGA_SIM_CSRC_DIR  = $(abspath ./src/test/csrc/fpga_sim)
+FPGA_SIM_VSRC_DIR  = $(abspath ./src/test/vsrc/fpga_sim)
+VCS_CXXFILES += $(shell find $(FPGA_SIM_CSRC_DIR) -name "*.cpp")
+VCS_CXXFLAGS += -I$(FPGA_SIM_CSRC_DIR) -DFPGA_SIM
+VCS_FLAGS 	 += +define+FPGA_SIM
+VCS_VFILES 	 += $(shell find $(FPGA_SIM_VSRC_DIR) -name "*.v" -or -name "*.sv")
+VCS_LDFLAGS  += -lrt
+endif
+
 # DiffTest support
 ifneq ($(NO_DIFF),1)
 VCS_FLAGS    += +define+DIFFTEST
@@ -106,8 +120,6 @@ VCS_FLAGS += +incdir+$(GEN_VSRC_DIR)
 # enable fsdb dump
 VCS_FLAGS += $(EXTRA)
 
-VCS_VSRC_DIR = $(abspath ./src/test/vsrc/vcs)
-VCS_VFILES   = $(SIM_VSRC) $(shell find $(VCS_VSRC_DIR) -name "*.v" -or -name "*.sv")
 $(VCS_TARGET): $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
 	$(VCS) $(VCS_FLAGS) $(SIM_TOP_V) $(VCS_CXXFILES) $(VCS_VFILES)
 ifeq ($(VCS),verilator)
