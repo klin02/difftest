@@ -127,15 +127,24 @@ class BatchCluster(bundleType: DifftestBundle, groupSize: Int, param: BatchParam
     VecInit(in.map(_.valid.asUInt).take(idx + 1).toSeq).reduce(_ +& _)
   }
   val v_size = valid_sum.last
-  val v_aligned = in.map { v_gen => Mux(v_gen.valid, v_gen.bits.getByteAlign, 0.U) }
-  val collect_data = Wire(Vec(groupSize, UInt(alignWidth.W)))
-  collect_data.zipWithIndex.foreach { case (gen, vid) =>
-    gen := VecInit((vid until groupSize).map { idx =>
-      Mux(valid_sum(idx) === (vid + 1).U, v_aligned(idx), 0.U)
-    }).reduce(_ | _)
+//  val v_aligned = in.map { v_gen => Mux(v_gen.valid, v_gen.bits.getByteAlign, 0.U) }
+//  val collect_data = Wire(Vec(groupSize, UInt(alignWidth.W)))
+//  collect_data.zipWithIndex.foreach { case (gen, vid) =>
+//    gen := VecInit((vid until groupSize).map { idx =>
+//      Mux(valid_sum(idx) === (vid + 1).U, v_aligned(idx), 0.U)
+//    }).reduce(_ | _)
+//  }
+//  out_data := collect_data.asUInt
+//val info_res = Wire(MixedVec(Seq.tabulate(param.StepGroupSize) { idx => UInt(((idx + 2) * param.infoWidth).W) }))
+  val rev_in = in.reverse
+  val collect_data = Wire(MixedVec(Seq.tabulate(groupSize){idx => UInt(((idx + 1) * alignWidth).W) }))
+  collect_data(0) := Mux(rev_in(0).valid, rev_in(0).bits.getByteAlign, 0.U)
+  for (idx <- 1 until groupSize) {
+    collect_data(idx) := Mux(rev_in(idx).valid,
+      Cat(collect_data(idx - 1), rev_in(idx).bits.getByteAlign),
+      collect_data(idx - 1))
   }
-  out_data := collect_data.asUInt
-
+  out_data := collect_data.last
   val info = Wire(new BatchInfo)
   info.id := Batch.getBundleID(bundleType).U
   info.num := v_size
