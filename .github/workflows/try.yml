@@ -45,8 +45,8 @@ jobs:
 
       - name: Chisel Elaboration
         run: |
-          make -C $NOOP_HOME sim-verilog WITH_CONSTANTIN=0 WITH_CHISELDB=0 RELEASE=1 CHISEL_TARGET=chirrtl JVM_XMX=10g
-          # make -C $NOOP_HOME verilog WITH_CONSTANTIN=0 WITH_CHISELDB=0 CONFIG='XSNoCDiffTopConfig --enable-difftest' PLDM=1 CHISEL_TARGET=chirrtl ISSUE=B XSTOP_PREFIX=bosc_ JVM_XMX=10g
+          make -C $NOOP_HOME sim-verilog WITH_CONSTANTIN=0 WITH_CHISELDB=0 RELEASE=1 CHISEL_TARGET=chirrtl JVM_XMX=20G
+          # make -C $NOOP_HOME verilog WITH_CONSTANTIN=0 WITH_CHISELDB=0 CONFIG='XSNoCDiffTopConfig --enable-difftest' PLDM=1 CHISEL_TARGET=chirrtl ISSUE=B XSTOP_PREFIX=bosc_ JVM_XMX=20G
 
       - name: Build libdifftest.so
         run: |
