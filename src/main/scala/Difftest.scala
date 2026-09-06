@@ -312,7 +312,7 @@ class DiffTriggerCSRState extends TriggerCSRState with DifftestBundle {
   override val supportsDelta: Boolean = true
 }
 
-private[difftest] class DiffArchIntRegState extends ArchIntRegState with DifftestBundle {
+class DiffArchIntRegState extends ArchIntRegState with DifftestBundle {
   override val desiredCppName: String = "xrf"
   override val desiredRegOffset: Option[Int] = Some(0)
   override val updateDependency: Seq[String] = Seq("commit", "event")
@@ -334,14 +334,14 @@ class DiffArchFpDelayedUpdate extends DiffArchDelayedUpdate(32) {
   override val desiredCppName: String = "regs_fp_delayed"
 }
 
-private[difftest] class DiffArchFpRegState extends DiffArchIntRegState {
+class DiffArchFpRegState extends DiffArchIntRegState {
   override val desiredCppName: String = "frf"
   override val desiredRegOffset: Option[Int] = Some(1)
   override val updateDependency: Seq[String] = Seq("commit", "event")
   override val supportsDelta: Boolean = true
 }
 
-private[difftest] class DiffArchVecRegState extends ArchVecRegState with DifftestBundle {
+class DiffArchVecRegState extends ArchVecRegState with DifftestBundle {
   override val desiredCppName: String = "vrf"
   override val desiredRegOffset: Option[Int] = Some(4)
   override val updateDependency: Seq[String] = Seq("commit", "event")
