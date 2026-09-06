@@ -21,7 +21,7 @@ import chisel3.util._
 import difftest._
 import difftest.common.FileControl
 import difftest.gateway.GatewayConfig
-import difftest.util.{LookupTree, PipelineConnect}
+import difftest.util.PipelineConnect
 
 import scala.collection.mutable.ListBuffer
 
@@ -97,61 +97,30 @@ object Delta {
   }
 }
 
-class DeltaSplitter(v_gen: Valid[DifftestBundle], filter: Option[UInt], config: GatewayConfig) extends Module {
-  val in = IO(Flipped(Decoupled(v_gen)))
+class DeltaSplitter(v_gen: Valid[DifftestBundle], filter: Option[UInt]) extends Module {
+  val in = IO(Input(v_gen))
   val in_filter = Option.when(filter.isDefined)(IO(Input(chiselTypeOf(filter.get))))
-  val out = IO(Decoupled(Vec(config.deltaLimit, Valid(new DiffDeltaElem(v_gen.bits)))))
-  val inPending = IO(Output(Bool()))
+  val accept = IO(Input(Bool()))
 
-  val first_elems = VecInit(in.bits.bits.dataElements.flatMap(_._3))
+  val first_elems = VecInit(in.bits.dataElements.flatMap(_._3))
   val r_elems = RegInit(0.U.asTypeOf(first_elems))
+  val out = IO(Output(Vec(first_elems.length, Valid(new DiffDeltaElem(v_gen.bits)))))
 
   val update_mask = in_filter.getOrElse(Fill(first_elems.length, true.B)).asBools
   val first_updates = VecInit(first_elems.zip(r_elems).zip(update_mask).map { case ((e, s), m) =>
-    e =/= s && in.fire && in.bits.valid && m
+    e =/= s && in.valid && m
   })
   r_elems.zip(first_elems).zip(first_updates).map { case ((r, e), u) =>
-    when(u) {
+    when(accept && u) {
       r := e
     }
   }
-  val needUpdate = first_updates.asUInt.orR
-  val r_updates = RegEnable(first_updates, needUpdate)
-  val updates = Mux(needUpdate, first_updates, r_updates)
-  val elems = Mux(needUpdate, first_elems, r_elems)
 
-  val first_group_updates = VecInit(first_updates.grouped(config.deltaLimit).map(_.reduce(_ || _)).toSeq)
-  val group_size = first_group_updates.length
-  val r_group_updates = RegInit(0.U(group_size.W))
-  val group_updates = Mux(needUpdate, first_group_updates.asUInt, r_group_updates)
-  val group_idx = PriorityEncoder(group_updates)
-  val mask = (~0.U(group_size.W) << (group_idx +& 1.U)).asUInt(group_size - 1, 0)
-  val next_group_updates = group_updates.asUInt & mask
-  when(needUpdate) {
-    r_group_updates := Mux(out.fire, next_group_updates, first_group_updates.asUInt)
-  }.elsewhen(out.fire) {
-    r_group_updates := next_group_updates
-  }
-
-  inPending := next_group_updates =/= 0.U
-  val visiblePending = group_updates =/= 0.U && !out.fire
-  // Block new input in the cycle after a held visible beat so a stalled final group
-  // cannot be replaced by the next transaction without a top-level holding register.
-  in.ready := !RegNext(inPending || visiblePending, false.B)
-  out.valid := group_updates =/= 0.U
-  out.bits.zipWithIndex.foreach { case (gen, idx) =>
-    val sel_map = Seq.tabulate(group_size) { gid =>
-      val seqID = gid * config.deltaLimit + idx
-      val delta = WireInit(0.U.asTypeOf(Valid(new DiffDeltaElem(v_gen.bits))))
-      if (seqID < elems.length) {
-        delta.valid := updates(seqID) && group_updates =/= 0.U
-        delta.bits.coreid := in.bits.bits.coreid
-        delta.bits.index := seqID.U
-        delta.bits.data := elems(seqID)
-      }
-      (gid.U, delta)
-    }
-    gen := LookupTree(group_idx, sel_map)
+  out.zipWithIndex.foreach { case (delta, idx) =>
+    delta.valid := first_updates(idx)
+    delta.bits.coreid := in.bits.coreid
+    delta.bits.index := idx.U
+    delta.bits.data := first_elems(idx)
   }
 }
 
@@ -161,9 +130,8 @@ class DeltaEndpoint(bundles: Seq[Valid[DifftestBundle]], config: GatewayConfig) 
   PipelineConnect(in, pipelined, pipelined.fire)
 
   val toDeltas = pipelined.bits.filter(_.bits.supportsDelta)
-  val inPending = Wire(Vec(toDeltas.length, Bool()))
 
-  val splitters = toDeltas.zipWithIndex.map { case (v_gen, idx) =>
+  val splitters = toDeltas.map { v_gen =>
     val filter: Option[UInt] = v_gen.bits match {
       case preg: DiffPhyRegState =>
         Option.when(preg.needRat) {
@@ -190,28 +158,25 @@ class DeltaEndpoint(bundles: Seq[Valid[DifftestBundle]], config: GatewayConfig) 
       case _ => None
     }
 
-    val module = Module(new DeltaSplitter(chiselTypeOf(v_gen), filter, config))
-    module.in.valid := pipelined.valid
-    module.in.bits := v_gen
+    val module = Module(new DeltaSplitter(chiselTypeOf(v_gen), filter))
+    module.in.bits := v_gen.bits
+    module.in.valid := v_gen.valid && pipelined.valid
     module.in_filter.foreach(_ := filter.get)
-    inPending(idx) := module.inPending
+    module.accept := pipelined.fire
     module
   }
-  val deltas = splitters.flatMap(_.out.bits)
+  val deltas = splitters.flatMap(_.out)
 
   val deltaInfo = Wire(Valid(new DiffDeltaInfo))
-  // Only transfer deltaInfo when there is no pending deltas
-  val lastPending = VecInit(deltas.map(_.valid)).asUInt.orR && !inPending.asUInt.orR
-  deltaInfo.valid := lastPending
-  deltaInfo.bits.valid := lastPending
+  val hasDelta = VecInit(deltas.map(_.valid)).asUInt.orR
+  deltaInfo.valid := hasDelta
+  deltaInfo.bits.valid := hasDelta
   deltaInfo.bits.coreid := 0.U
 
-  // Gate non-delta bits to only be valid during pipelined.fire
-  val pipelinedFire = pipelined.fire
   val nonDeltaBits = pipelined.bits.filterNot(_.bits.supportsDelta).map { b =>
     val gated = WireInit(b)
-    gated.valid := b.valid && pipelinedFire
-    gated.bits.bits.getValidOption.foreach(_ := b.valid && pipelinedFire)
+    gated.valid := b.valid && pipelined.valid
+    gated.bits.bits.getValidOption.foreach(_ := b.valid && pipelined.valid)
     gated
   }
 
@@ -221,8 +186,5 @@ class DeltaEndpoint(bundles: Seq[Valid[DifftestBundle]], config: GatewayConfig) 
   out.valid := VecInit(withDeltas.map(_.valid)).asUInt.orR
   out.bits := withDeltas
 
-  splitters.foreach(_.out.ready := out.ready)
-  pipelined.ready := VecInit(splitters.map(_.in.ready)).asUInt.andR && out.ready
-  // All splitters must fire synchronously to avoid mixing data from different pipeline stages
-  splitters.foreach(_.in.valid := pipelined.fire)
+  pipelined.ready := !out.valid || out.ready
 }
