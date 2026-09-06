@@ -162,7 +162,7 @@ class QueryTable(val gen: DifftestBundle, locPrefix: String, dutZone: String, so
 
 class BatchQueryTable(template: Seq[DifftestBundle]) {
   private val bundleNames: Seq[String] =
-    template.map(_.desiredModuleName.replace("Difftest", "")) ++ Seq("BatchHead", "BatchStep")
+    template.map(_.desiredModuleName.replace("Difftest", "")) ++ Seq("BatchStep", "BatchFinish")
 
   val members: String =
     s"""Query* query_BatchInfo;
