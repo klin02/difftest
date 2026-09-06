@@ -60,9 +60,9 @@ case class GatewayConfig(
   def maxStep: Int = if (isBatch) batchSize else 1
   def stepWidth: Int = log2Ceil(maxStep + 1)
   def replayWidth: Int = log2Ceil(replaySize + 1)
-  def batchBeatByteLen: Int = batchBeatChunks * batchChunkBytes
-  def batchBitWidth: Int = batchBeatByteLen * 8
-  def batchSplit: Boolean = false
+  def batchArgByteLen: (Int, Int) = if (isFPGA) (2500, 100) else if (isNonBlock) (3600, 400) else (7200, 800)
+  def batchBitWidth: Int = batchArgByteLen match { case (dataBytes, infoBytes) => (dataBytes + infoBytes) * 8 }
+  def batchSplit: Boolean = !isFPGA
   def deltaLimit: Int = 8
   def hasClockGate = isFPGA || isDelta || isBatch
   def hasDeferredResult: Boolean = isNonBlock || hasInternalStep
@@ -81,7 +81,7 @@ case class GatewayConfig(
       macros ++= Seq(
         "CONFIG_DIFFTEST_BATCH",
         s"CONFIG_DIFFTEST_BATCH_SIZE ${batchSize}",
-        s"CONFIG_DIFFTEST_BATCH_BYTELEN ${batchBeatByteLen}",
+        s"CONFIG_DIFFTEST_BATCH_BYTELEN ${batchArgByteLen._1 + batchArgByteLen._2}",
       )
     if (isSquash) macros ++= Seq("CONFIG_DIFFTEST_SQUASH", s"CONFIG_DIFFTEST_SQUASH_STAMPSIZE 4096") // Stamp Width 12
     if (isDelta) macros += "CONFIG_DIFFTEST_DELTA"
@@ -113,8 +113,6 @@ case class GatewayConfig(
     if (hasReplay) require(isSquash)
     if (hasInternalStep) require(isBatch)
     if (isBatch) require(!hasDutZone)
-    if (isBatch) require(isPow2(batchChunkBytes))
-    if (isBatch) require(batchBeatChunks > 0 && isPow2(batchBeatChunks))
     // Currently Delta depends on Batch to ensure update and sync order
     if (isDelta) require(isBatch)
     // Batch provides unified IO interface for FPGA Diff
@@ -337,9 +335,9 @@ class GatewayEndpoint(instanceWithDelay: Seq[(DifftestBundle, Int)], config: Gat
     val batch = Batch(toSink, config)
     step := RegNext(batch.bits.step, 0.U) // expose Batch step to check timeout
     control.enable := batch.valid
-    GatewaySink.batch(Batch.getTemplate, control, batch.bits, config)
+    GatewaySink.batch(Batch.getTemplate, control, batch.bits.io, config)
     if (config.isFPGA) {
-      fpgaIO.get.bits := batch.bits.payload
+      fpgaIO.get.bits := batch.bits.io.asUInt
       fpgaIO.get.valid := batch.valid
       batch.ready := fpgaIO.get.ready
     } else {
