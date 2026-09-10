@@ -267,12 +267,12 @@ class DiffInstrCommit(nPhyRegs: Int = 32) extends InstrCommit(nPhyRegs) with Dif
   override def classArgs: Map[String, Any] = Map("nPhyRegs" -> nPhyRegs)
 }
 
-private[difftest] class DiffCommitData extends CommitData with DifftestBundle with DifftestWithIndex {
+class DiffCommitData extends CommitData with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "commit_data"
   override def supportsSquashBase: Bool = true.B
 }
 
-private[difftest] class DiffVecCommitData extends VecCommitData with DifftestBundle with DifftestWithIndex {
+class DiffVecCommitData extends VecCommitData with DifftestBundle with DifftestWithIndex {
   override val desiredCppName: String = "vec_commit_data"
   override def supportsSquashBase: Bool = true.B
 }
@@ -310,6 +310,34 @@ class DiffTriggerCSRState extends TriggerCSRState with DifftestBundle {
   override val desiredRegOffset: Option[Int] = Some(7)
   override val updateDependency: Seq[String] = Seq("commit", "event")
   override val supportsDelta: Boolean = true
+}
+
+class DiffIntWriteback(numRegs: Int = 32) extends DataWriteback(numRegs) with DifftestBundle {
+  override val desiredCppName: String = "wb_xrf"
+  override protected val needFlatten: Boolean = true
+  override def supportsSquashBase: Bool = true.B
+  override def classArgs: Map[String, Any] = Map("numRegs" -> numRegs)
+}
+
+class DiffFpWriteback(numRegs: Int = 32) extends DataWriteback(numRegs) with DifftestBundle {
+  override val desiredCppName: String = "wb_frf"
+  override protected val needFlatten: Boolean = true
+  override def supportsSquashBase: Bool = true.B
+  override def classArgs: Map[String, Any] = Map("numRegs" -> numRegs)
+}
+
+class DiffVecWriteback(numRegs: Int = 32) extends VecDataWriteback(numRegs) with DifftestBundle {
+  override val desiredCppName: String = "wb_vrf"
+  override protected val needFlatten: Boolean = true
+  override def supportsSquashBase: Bool = true.B
+  override def classArgs: Map[String, Any] = Map("numRegs" -> numRegs)
+}
+
+class DiffVecV0Writeback(numRegs: Int = 32) extends VecDataWriteback(numRegs) with DifftestBundle {
+  override val desiredCppName: String = "wb_v0"
+  override protected val needFlatten: Boolean = true
+  override def supportsSquashBase: Bool = true.B
+  override def classArgs: Map[String, Any] = Map("numRegs" -> numRegs)
 }
 
 class DiffArchIntRegState extends ArchIntRegState with DifftestBundle {
