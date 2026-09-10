@@ -47,7 +47,7 @@ Implementation: [`Preprocess.scala`](../src/main/scala/Preprocess.scala)
 
 - Converts physical register state + rename tables into architectural register state (when `softArchUpdate` is not enabled)
 - Generates `commit_data` and optional `vec_commit_data` from PhyReg when that path is present
-- Direct ArchReg + Writeback probes skip this conversion; software then uses `wb_xrf[wpdest]` / `wb_frf[wpdest]` as per-instruction commit data
+- Direct ArchReg + Writeback probes reconstruct `commit_data` from buffered physical WriteBacks (`wb_xrf`/`wb_frf`) so skip uses per-instruction `wpdest` data instead of end-of-cycle `xrf[wdest]`
 - May remove some load events in single-core scenarios
 
 Automatically enabled when any of these is true: dut zone, batch, squash, or replay is enabled, or softArchUpdate is not enabled.
