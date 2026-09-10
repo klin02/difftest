@@ -102,6 +102,141 @@ object Preprocess {
 
     bundles.filterNot(b => Seq("pregs_", "rat_").exists(s => b.desiredCppName.contains(s))) ++ archRegs ++ commitDatas
   }
+
+  // Reconstruct per-instruction commit data from physical WriteBack ports.
+  // WriteBacks and InstrCommit may not land in the same software buffer, so
+  // keep a physical RF shadow until the matching commit arrives. Same-cycle
+  // WriteBacks override the shadow so two writes to the same logical dest
+  // still keep distinct wpdest values.
+  def getCommitData(
+    bundles: MixedVec[DifftestBundle],
+    commits: Seq[DiffInstrCommit],
+    wbName: String,
+    regName: String,
+  ): Seq[UInt] = {
+    if (bundles.exists(_.desiredCppName == wbName)) {
+      val numCores = bundles.count(_.isUniqueIdentifier)
+      val writeBacks = bundles.filter(_.desiredCppName == wbName)
+      val numElements = writeBacks.head.asInstanceOf[DataWriteback].numElements
+      val phyRf = Reg(Vec(numCores, Vec(numElements, UInt(64.W))))
+      for (wb <- writeBacks) {
+        val valid = wb.asInstanceOf[DataWriteback].valid
+        val coreid = wb.coreid
+        val address = wb.asInstanceOf[DataWriteback].address
+        val data = wb.asInstanceOf[DataWriteback].data
+        when(valid) {
+          phyRf(coreid)(address) := data
+        }
+      }
+      commits.map { c =>
+        val data = WireInit(phyRf(c.coreid)(c.wpdest))
+        for (wb <- writeBacks) {
+          val valid = wb.asInstanceOf[DataWriteback].valid
+          val coreid = wb.coreid
+          val address = wb.asInstanceOf[DataWriteback].address
+          val wdata = wb.asInstanceOf[DataWriteback].data
+          when(valid && coreid === c.coreid && address === c.wpdest) {
+            data := wdata
+          }
+        }
+        data
+      }
+    } else if (bundles.exists(_.desiredCppName == regName)) {
+      val archRf = VecInit(bundles.filter(_.desiredCppName == regName).map(_.asInstanceOf[ArchIntRegState]).toSeq)
+      commits.map { c => archRf(c.coreid).value(c.wdest) }
+    } else {
+      Seq.fill(commits.length)(0.U)
+    }
+  }
+
+  def getVecCommitData(
+    bundles: MixedVec[DifftestBundle],
+    commits: Seq[DiffInstrCommit],
+  ): Seq[Seq[Vec[UInt]]] = {
+    if (bundles.exists(_.desiredCppName == "wb_vrf")) {
+      val numCores = bundles.count(_.isUniqueIdentifier)
+      val vecWriteBacks = bundles.filter(_.desiredCppName == "wb_vrf").map(_.asInstanceOf[DiffVecWriteback])
+      val v0WriteBacks = bundles.filter(_.desiredCppName == "wb_v0").map(_.asInstanceOf[DiffVecV0Writeback])
+      val vecPhyRf = Reg(Vec(numCores, Vec(vecWriteBacks.head.numElements, Vec(2, UInt(64.W)))))
+      val v0PhyRf = Reg(Vec(numCores, Vec(v0WriteBacks.head.numElements, Vec(2, UInt(64.W)))))
+
+      for (vecWb <- vecWriteBacks) {
+        when(vecWb.valid) {
+          vecPhyRf(vecWb.coreid)(vecWb.address) := vecWb.data
+        }
+      }
+      for (v0Wb <- v0WriteBacks) {
+        when(v0Wb.valid) {
+          v0PhyRf(v0Wb.coreid)(v0Wb.address) := v0Wb.data
+        }
+      }
+
+      commits.map { c =>
+        val otherData = c.otherwpdest.map { pdest =>
+          WireInit(vecPhyRf(c.coreid)(pdest))
+        }
+
+        when(c.valid) {
+          c.otherwpdest.zipWithIndex.foreach { case (pdest, i) =>
+            for (vecWb <- vecWriteBacks) {
+              when(vecWb.valid && vecWb.coreid === c.coreid && vecWb.address === pdest) {
+                otherData(i) := vecWb.data
+              }
+            }
+          }
+        }
+
+        when(c.v0wen) {
+          otherData(0) := v0PhyRf(c.coreid)(c.otherwpdest(0))
+          when(c.valid) {
+            for (v0Wb <- v0WriteBacks) {
+              when(v0Wb.valid && v0Wb.coreid === c.coreid && v0Wb.address === c.otherwpdest(0)) {
+                otherData(0) := v0Wb.data
+              }
+            }
+          }
+        }
+
+        otherData
+      }
+    } else {
+      Seq.fill(commits.length)(Seq.fill(8)(VecInit(Seq.fill(2)(0.U(64.W)))))
+    }
+  }
+
+  def collectWritebackCommitData(bundles: MixedVec[DifftestBundle]): Seq[DifftestBundle] = {
+    val commits = bundles.filter(_.desiredCppName == "commit").map(_.asInstanceOf[DiffInstrCommit]).toSeq
+    val intData = getCommitData(bundles, commits, "wb_xrf", "xrf")
+    val fpData = getCommitData(bundles, commits, "wb_frf", "frf")
+    val commitData = commits.zip(fpData).zip(intData).map { case ((c, f), i) =>
+      val cd = WireInit(0.U.asTypeOf(new DiffCommitData))
+      cd.coreid := c.coreid
+      cd.index := c.index
+      cd.valid := c.valid && (c.rfwen || c.fpwen)
+      cd.data := Mux(c.fpwen, f, i)
+      cd
+    }
+    val noWriteBacks = bundles.filterNot(_.desiredCppName.contains("wb"))
+    val vecCommitData = if (bundles.exists(_.desiredCppName == "wb_vrf")) {
+      val vecData = getVecCommitData(bundles, commits)
+      commits.zip(vecData).map { case (c, v) =>
+        val vcd = WireInit(0.U.asTypeOf(new DiffVecCommitData))
+        vcd.coreid := c.coreid
+        vcd.index := c.index
+        vcd.valid := c.valid && (c.v0wen || c.vecwen)
+        when(c.v0wen || c.vecwen) {
+          for (index <- 0 until 8) {
+            vcd.data(2 * index) := v(index)(0)
+            vcd.data(2 * index + 1) := v(index)(1)
+          }
+        }
+        vcd
+      }
+    } else {
+      Seq.empty[DiffVecCommitData]
+    }
+    noWriteBacks ++ commitData ++ vecCommitData
+  }
 }
 
 class PreprocessEndpoint(bundles: Seq[DifftestBundle], config: GatewayConfig) extends Module {
@@ -112,6 +247,8 @@ class PreprocessEndpoint(bundles: Seq[DifftestBundle], config: GatewayConfig) ex
   val replaceReg = if (!config.softArchUpdate && pipelined.bits.exists(_.desiredCppName == "pregs_xrf")) {
     // extract ArchReg in Hardware
     Preprocess.replaceRegs(pipelined.bits)
+  } else if (pipelined.bits.exists(_.desiredCppName.contains("wb"))) {
+    Preprocess.collectWritebackCommitData(pipelined.bits)
   } else {
     pipelined.bits
   }

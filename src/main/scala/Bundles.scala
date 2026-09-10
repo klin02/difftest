@@ -93,11 +93,11 @@ class InstrCommit(val numPhyRegs: Int = 32) extends DifftestBaseBundle with HasV
 }
 
 // Instantiate inside DiffTest, work for get_commit_data specially
-private[difftest] class CommitData extends DifftestBaseBundle with HasValid {
+class CommitData extends DifftestBaseBundle with HasValid {
   val data = UInt(64.W)
 }
 
-private[difftest] class VecCommitData extends DifftestBaseBundle with HasValid {
+class VecCommitData extends DifftestBaseBundle with HasValid {
   val data = Vec(16, UInt(64.W))
 }
 
@@ -180,6 +180,14 @@ class ArchRenameTable(numRegs: Int, numPhyRegs: Int) extends DifftestBaseBundle 
 
 class PhyRegState(numPhyRegs: Int) extends DifftestBaseBundle {
   val value = Vec(numPhyRegs, UInt(64.W))
+}
+
+class DataWriteback(val numElements: Int) extends DifftestBaseBundle with HasValid with HasAddress {
+  val data = UInt(64.W)
+}
+
+class VecDataWriteback(val numElements: Int) extends DifftestBaseBundle with HasValid with HasAddress {
+  val data = Vec(2, UInt(64.W))
 }
 
 class ArchRegState(val numRegs: Int) extends DifftestBaseBundle {
