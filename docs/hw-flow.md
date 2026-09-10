@@ -46,7 +46,8 @@ Not all stages are always enabled. Which stages are present depends on `--diffte
 Implementation: [`Preprocess.scala`](../src/main/scala/Preprocess.scala)
 
 - Converts physical register state + rename tables into architectural register state (when `softArchUpdate` is not enabled)
-- Generates `commit_data` and optional `vec_commit_data`
+- Generates `commit_data` and optional `vec_commit_data` from PhyReg when that path is present
+- Direct ArchReg + Writeback probes skip this conversion; software then uses `wb_xrf[wpdest]` / `wb_frf[wpdest]` as per-instruction commit data
 - May remove some load events in single-core scenarios
 
 Automatically enabled when any of these is true: dut zone, batch, squash, or replay is enabled, or softArchUpdate is not enabled.
