@@ -188,8 +188,19 @@ object Gateway {
     config.check()
   }
 
+  // Writeback probes that only feed commit_data reconstruction: fp/vec skip is
+  // unsupported (refproxy vecwen asserts), and vec_commit_data is only consumed
+  // by the REF-based vec load check. On FPGA basic-diff builds none of this
+  // runs, so drop these probes at registration: no Delayer, no gateway wiring,
+  // no preprocess shadow logic. The DUT-side probe wires are left dangling and
+  // trimmed by synthesis.
+  private val fpgaDropProbes = Set("wb_frf", "wb_vrf", "wb_v0")
+
   def apply[T <: DifftestBundle](gen: T, delay: Int): T = {
     val ret = WireInit(0.U.asTypeOf(gen)).suggestName(gen.desiredCppName)
+    if (config.isFPGA && fpgaDropProbes.contains(gen.desiredCppName)) {
+      return ret
+    }
     val bundle = if (config.isFPGA && gen.fpgaFilterElems.nonEmpty) {
       val filtered = WireInit(ret)
       gen.fpgaFilterElems.foreach { name =>

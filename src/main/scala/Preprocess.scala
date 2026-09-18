@@ -109,7 +109,7 @@ object Preprocess {
   // WriteBacks override the shadow so two writes to the same logical dest
   // still keep distinct wpdest values.
   def getCommitData(
-    bundles: Seq[DifftestBundle],
+    bundles: MixedVec[DifftestBundle],
     commits: Seq[DiffInstrCommit],
     wbName: String,
     regName: String,
@@ -150,7 +150,7 @@ object Preprocess {
   }
 
   def getVecCommitData(
-    bundles: Seq[DifftestBundle],
+    bundles: MixedVec[DifftestBundle],
     commits: Seq[DiffInstrCommit],
   ): Seq[Seq[Vec[UInt]]] = {
     if (bundles.exists(_.desiredCppName == "wb_vrf")) {
@@ -205,13 +205,9 @@ object Preprocess {
   }
 
   def collectWritebackCommitData(bundles: MixedVec[DifftestBundle]): Seq[DifftestBundle] = {
-    // Drop vec/v0 writeback probes instead of converting them to vec_commit_data:
-    // vec_commit_data is only consumed by the REF-based vector load check,
-    // which FPGA basic-diff builds never run.
-    val filtered = bundles.filterNot(b => b.desiredCppName == "wb_vrf" || b.desiredCppName == "wb_v0")
-    val commits = filtered.filter(_.desiredCppName == "commit").map(_.asInstanceOf[DiffInstrCommit]).toSeq
-    val intData = getCommitData(filtered, commits, "wb_xrf", "xrf")
-    val fpData = getCommitData(filtered, commits, "wb_frf", "frf")
+    val commits = bundles.filter(_.desiredCppName == "commit").map(_.asInstanceOf[DiffInstrCommit]).toSeq
+    val intData = getCommitData(bundles, commits, "wb_xrf", "xrf")
+    val fpData = getCommitData(bundles, commits, "wb_frf", "frf")
     val commitData = commits.zip(fpData).zip(intData).map { case ((c, f), i) =>
       val cd = WireInit(0.U.asTypeOf(new DiffCommitData))
       cd.coreid := c.coreid
@@ -220,9 +216,9 @@ object Preprocess {
       cd.data := Mux(c.fpwen, f, i)
       cd
     }
-    val noWriteBacks = filtered.filterNot(_.desiredCppName.contains("wb"))
-    val vecCommitData = if (filtered.exists(_.desiredCppName == "wb_vrf")) {
-      val vecData = getVecCommitData(filtered, commits)
+    val noWriteBacks = bundles.filterNot(_.desiredCppName.contains("wb"))
+    val vecCommitData = if (bundles.exists(_.desiredCppName == "wb_vrf")) {
+      val vecData = getVecCommitData(bundles, commits)
       commits.zip(vecData).map { case (c, v) =>
         val vcd = WireInit(0.U.asTypeOf(new DiffVecCommitData))
         vcd.coreid := c.coreid
