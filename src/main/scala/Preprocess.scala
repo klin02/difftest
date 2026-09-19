@@ -77,7 +77,9 @@ object Preprocess {
     val phyInts = getBundle[DiffPhyIntRegState]("pregs_xrf")
     val phyFps = getBundle[DiffPhyFpRegState]("pregs_frf")
     val phyVecs = getBundle[DiffPhyVecRegState]("pregs_vrf")
-    val commitDatas = commits.zipWithIndex.flatMap { case (c, idx) =>
+    // Emit only scalar commit_data. vec_commit_data only feeds the REF-based
+    // vec load check, which FPGA basic-diff builds never run.
+    val commitDatas = commits.zipWithIndex.map { case (c, idx) =>
       val coreID = idx / (commits.length / numCores)
       val intData = phyInts(coreID).value(c.wpdest)
       val fpData = if (phyFps.nonEmpty) phyFps(coreID).value(c.wpdest) else 0.U
@@ -86,18 +88,7 @@ object Preprocess {
       cd.index := c.index
       cd.valid := c.valid && (c.rfwen || c.fpwen)
       cd.data := Mux(c.fpwen, fpData, intData)
-      // Also skip vec_commit_data (used in vec_load check) for single core
-      val vcd = Option.when(phyVecs.nonEmpty && numCores > 1) {
-        val gen = Wire(new DiffVecCommitData)
-        gen.coreid := c.coreid
-        gen.index := c.index
-        gen.valid := c.valid && (c.v0wen || c.vecwen)
-        gen.data := c.otherwpdest.map { wpdest =>
-          phyVecs(coreID).value(wpdest)
-        }
-        gen
-      }
-      Seq(cd) ++ vcd.toSeq
+      cd
     }
 
     bundles.filterNot(b => Seq("pregs_", "rat_").exists(s => b.desiredCppName.contains(s))) ++ archRegs ++ commitDatas
