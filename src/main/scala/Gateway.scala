@@ -60,7 +60,7 @@ case class GatewayConfig(
   def maxStep: Int = if (isBatch) batchSize else 1
   def stepWidth: Int = log2Ceil(maxStep + 1)
   def replayWidth: Int = log2Ceil(replaySize + 1)
-  def batchArgByteLen: (Int, Int) = if (isFPGA) (2500, 100) else if (isNonBlock) (3600, 400) else (7200, 800)
+  def batchArgByteLen: (Int, Int) = if (isFPGA) (3300, 1000) else if (isNonBlock) (3600, 400) else (7200, 800)
   def batchBitWidth: Int = batchArgByteLen match { case (dataBytes, infoBytes) => (dataBytes + infoBytes) * 8 }
   def batchSplit: Boolean = !isFPGA
   def deltaLimit: Int = 8
