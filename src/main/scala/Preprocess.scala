@@ -86,8 +86,9 @@ object Preprocess {
       cd.index := c.index
       cd.valid := c.valid && (c.rfwen || c.fpwen)
       cd.data := Mux(c.fpwen, fpData, intData)
-      // Also skip vec_commit_data (used in vec_load check) for single core
-      val vcd = Option.when(phyVecs.nonEmpty && numCores > 1) {
+      // vec_commit_data is kept unconditionally (including single core) to
+      // measure its hardware cost against the vec_commit_data-free variant.
+      val vcd = Option.when(phyVecs.nonEmpty) {
         val gen = Wire(new DiffVecCommitData)
         gen.coreid := c.coreid
         gen.index := c.index
