@@ -13,8 +13,8 @@
 *
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
-#ifndef DIFFTEST_REFDRIVE_H
-#define DIFFTEST_REFDRIVE_H
+#ifndef DIFFTEST_REF_DRIVE_H
+#define DIFFTEST_REF_DRIVE_H
 #include "refproxy.h"
 #ifdef CONFIG_DIFFTEST_FAST_REF
 struct RefDriveState {

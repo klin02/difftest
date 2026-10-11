@@ -23,7 +23,7 @@
 #include "refproxy.h"
 #include "stopwatch.h"
 #ifdef CONFIG_DIFFTEST_FAST_REF
-#include "refdrive/refdrive.h"
+#include "fork_ref/ref_drive.h"
 #endif
 
 #ifdef CONFIG_DIFFTEST_CHECKER_PERF

@@ -13,7 +13,7 @@
 *
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
-#include "refdrive.h"
+#include "ref_drive.h"
 #ifdef CONFIG_DIFFTEST_FAST_REF
 #include "diffstate.h"
 #include <algorithm>
