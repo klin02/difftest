@@ -126,10 +126,10 @@ int FastRefChecker::do_step() {
       state->record_exception(event.exceptionPC, event.exceptionInst, event.exception);
     self->arch_event_checker->discard();
   }
-  if (drive.committed) {
+  if (drive.committed_instrs) {
     state->has_progress = true;
     state->last_commit_cycle = dut->trap.cycleCnt;
-    state->record_group(dut->commit[0].pc, drive.committed);
+    state->record_group(dut->commit[0].pc, drive.committed_instrs);
   }
   for (auto &commit: dut->commit)
     commit.valid = 0;

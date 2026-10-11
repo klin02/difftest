@@ -97,6 +97,21 @@ enum {
   DUT_TO_REF
 };
 
+// RISC-V page faults and hardware errors need the DUT's trap-value CSRs.
+inline bool ref_exception_is_guided(uint64_t exception) {
+  enum {
+    IPF = 12,
+    LPF = 13,
+    SPF = 15,
+    HWE = 19,
+    IGPF = 20,
+    LGPF = 21,
+    SGPF = 23
+  };
+  return exception == IPF || exception == LPF || exception == SPF || exception == HWE || exception == IGPF ||
+         exception == LGPF || exception == SGPF;
+}
+
 struct DifftestStateHash {
   uint64_t state_lo, state_hi;
   uint64_t store_lo, store_hi, store_count;

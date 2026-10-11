@@ -17,19 +17,21 @@
 #define DIFFTEST_REF_DRIVE_H
 #include "refproxy.h"
 #ifdef CONFIG_DIFFTEST_FAST_REF
+// Operations retain the order of commits, skips and synchronization events.
+enum class RefDriveOp {
+  EXEC,
+  SKIP,
+  LRSC,
+  PENDING,
+  OVERFLOW,
+  CRITICAL,
+  AIA,
+  MFLUSH,
+  ARCH_EVENT,
+  END
+};
+
 struct RefDriveState {
-  enum Kind {
-    EXEC,
-    SKIP,
-    LRSC,
-    PENDING,
-    OVERFLOW,
-    CRITICAL,
-    AIA,
-    MFLUSH,
-    ARCH_EVENT,
-    END
-  };
   struct Skip {
     uint64_t data;
     uint32_t dest;
@@ -43,9 +45,9 @@ struct RefDriveState {
     ExecutionGuide guide;
   };
   struct Command {
-    Kind kind;
+    RefDriveOp op;
     union {
-      uint64_t count;
+      uint64_t instr_count;
       Skip skip;
       SyncState lrsc;
       NonRegInterruptPending pending;
@@ -56,16 +58,16 @@ struct RefDriveState {
       ArchEvent event;
     };
   };
-  static constexpr unsigned MAX_COMMANDS = CONFIG_DIFF_COMMIT_WIDTH * 2 + 8;
+  static constexpr unsigned MAX_COMMANDS = CONFIG_DIFF_COMMIT_WIDTH + 8;
   Command commands[MAX_COMMANDS];
-  unsigned count = 0;
-  uint32_t committed = 0;
+  unsigned num_commands = 0;
+  uint32_t committed_instrs = 0;
   bool arch_event = false;
   RefDriveState() = default;
   explicit RefDriveState(const DiffTestState &dut);
 
 private:
-  Command &append(Kind kind);
+  Command &append(RefDriveOp op);
 };
 
 class RefDriveExecutor {
@@ -80,14 +82,14 @@ public:
   Result run(const RefDriveState &state);
   bool flush();
   uint64_t completed() const {
-    return executed;
+    return executed_instrs;
   }
 
 private:
   static constexpr uint64_t MAX_PENDING = 65536;
   RefProxy *proxy;
-  uint64_t pending = 0;
-  uint64_t executed = 0;
+  uint64_t pending_instrs = 0;
+  uint64_t executed_instrs = 0;
 };
 #endif
 #endif
