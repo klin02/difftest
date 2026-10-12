@@ -20,6 +20,17 @@
 #include "diffstate.h"
 #include <algorithm>
 
+// Keep these causes consistent with ArchEventChecker::do_exception.
+enum {
+  EX_IPF = 12,
+  EX_LPF = 13,
+  EX_SPF = 15,
+  EX_HWE = 19,
+  EX_IGPF = 20,
+  EX_LGPF = 21,
+  EX_SGPF = 23
+};
+
 bool RefDriveExecutor::execute(uint64_t instr_count) {
   while (instr_count) {
     const uint64_t batch = std::min(instr_count, MAX_PENDING - pending_instrs);
@@ -99,7 +110,8 @@ RefDriveExecutor::Result RefDriveExecutor::run_state(State &dut, CommitData comm
         InterruptDelegate delegation = {bool(e.irToHS), bool(e.irToVS)};
         proxy->intr_delegate(delegation);
         proxy->raise_intr(e.interrupt | (1ULL << 63));
-      } else if (ref_exception_is_guided(e.exception)) {
+      } else if (e.exception == EX_IPF || e.exception == EX_LPF || e.exception == EX_SPF || e.exception == EX_IGPF ||
+                 e.exception == EX_LGPF || e.exception == EX_SGPF || e.exception == EX_HWE) {
         ExecutionGuide guide = {};
         guide.force_raise_exception = true;
         guide.exception_num = e.exception;
@@ -138,7 +150,7 @@ RefDriveExecutor::Result RefDriveExecutor::run(DiffTestState &state) {
   return run_state(state, [&state](int i) { return get_commit_data(&state, i); });
 }
 
-RefDriveExecutor::Result RefDriveExecutor::run(const DiffRefDriveState &state, const uint64_t commit_data[]) {
+RefDriveExecutor::Result RefDriveExecutor::run(const DiffTestState &state, const uint64_t commit_data[]) {
   return run_state(state, [commit_data](int i) { return commit_data[i]; });
 }
 #endif

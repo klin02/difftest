@@ -1,6 +1,6 @@
 /***************************************************************************************
-* Copyright (c) 2020-2025 Institute of Computing Technology, Chinese Academy of Sciences
-* Copyright (c) 2025 Beijing Institute of Open Source Chip
+* Copyright (c) 2020-2026 Institute of Computing Technology, Chinese Academy of Sciences
+* Copyright (c) 2025-2026 Beijing Institute of Open Source Chip
 *
 * DiffTest is licensed under Mulan PSL v2.
 * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -16,6 +16,33 @@
 
 #include "checkers.h"
 #include "dut.h"
+
+enum {
+  EX_IAM,       // instruction address misaligned
+  EX_IAF,       // instruction address fault
+  EX_II,        // illegal instruction
+  EX_BP,        // breakpoint
+  EX_LAM,       // load address misaligned
+  EX_LAF,       // load address fault
+  EX_SAM,       // store/amo address misaligned
+  EX_SAF,       // store/amo address fault
+  EX_ECU,       // ecall from U-mode or VU-mode
+  EX_ECS,       // ecall from HS-mode
+  EX_ECVS,      // ecall from VS-mode, H-extention
+  EX_ECM,       // ecall from M-mode
+  EX_IPF,       // instruction page fault
+  EX_LPF,       // load page fault
+  EX_RS0,       // reserved
+  EX_SPF,       // store/amo page fault
+  EX_DT,        // double trap
+  EX_RS1,       // reserved
+  EX_SWC,       // software check
+  EX_HWE,       // hardware error
+  EX_IGPF = 20, // instruction guest-page fault, H-extention
+  EX_LGPF,      // load guest-page fault, H-extention
+  EX_VI,        // virtual instruction, H-extention
+  EX_SGPF       // store/amo guest-page fault, H-extention
+};
 
 bool ArchEventChecker::get_valid(const DifftestArchEvent &probe) {
   return probe.valid;
@@ -53,7 +80,9 @@ int ArchEventChecker::do_interrupt(const DifftestArchEvent &probe) {
 
 int ArchEventChecker::do_exception(const DifftestArchEvent &probe) {
   state->record_exception(probe.exceptionPC, probe.exceptionInst, probe.exception);
-  if (ref_exception_is_guided(probe.exception)) {
+  if (probe.exception == EX_IPF || probe.exception == EX_LPF || probe.exception == EX_SPF ||
+      probe.exception == EX_IGPF || probe.exception == EX_LGPF || probe.exception == EX_SGPF ||
+      probe.exception == EX_HWE) {
     const auto &regs = get_regs();
     struct ExecutionGuide guide;
     guide.force_raise_exception = true;

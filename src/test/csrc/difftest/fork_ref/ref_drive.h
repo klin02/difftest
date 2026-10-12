@@ -33,7 +33,7 @@ public:
   };
   explicit RefDriveExecutor(RefProxy *proxy) : proxy(proxy) {}
   Result run(DiffTestState &state);
-  Result run(const DiffRefDriveState &state, const uint64_t commit_data[]);
+  Result run(const DiffTestState &state, const uint64_t commit_data[]);
   bool execute(uint64_t instr_count);
   bool flush();
   uint64_t completed() const {
