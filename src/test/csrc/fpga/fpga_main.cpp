@@ -291,7 +291,8 @@ void fpga_finish() {
 
   delete xdma_device;
 
-  difftest_refdrive_trace_finish();
+  if (args.refdrive_trace_name)
+    difftest_refdrive_trace_finish();
   if (signal_num == 0) {
     difftest_finish();
     goldenmem_finish();
