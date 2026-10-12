@@ -17,6 +17,14 @@
 #include "checkers.h"
 
 #ifdef CONFIG_DIFFTEST_LRSCEVENT
+bool LrScChecker::get_valid(const DifftestLrScEvent &probe) {
+  return probe.valid;
+}
+
+void LrScChecker::clear_valid(DifftestLrScEvent &probe) {
+  probe.valid = 0;
+}
+
 int LrScChecker::check(const DifftestLrScEvent &probe) {
   // sync lr/sc reg microarchitectural status to the REF
   struct SyncState sync;
@@ -27,20 +35,59 @@ int LrScChecker::check(const DifftestLrScEvent &probe) {
 #endif // CONFIG_DIFFTEST_LRSCEVENT
 
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+bool NonRegInterruptPendingChecker::get_valid(const DifftestNonRegInterruptPendingEvent &probe) {
+  return probe.valid;
+}
+
+void NonRegInterruptPendingChecker::clear_valid(DifftestNonRegInterruptPendingEvent &probe) {
+  probe.valid = 0;
+}
+
 int NonRegInterruptPendingChecker::check(const DifftestNonRegInterruptPendingEvent &probe) {
-  proxy->non_reg_interrupt_pending(probe);
+  struct NonRegInterruptPending ip;
+  ip.platformIRPMeip = probe.platformIRPMeip;
+  ip.platformIRPMtip = probe.platformIRPMtip;
+  ip.platformIRPMsip = probe.platformIRPMsip;
+  ip.platformIRPSeip = probe.platformIRPSeip;
+  ip.platformIRPStip = probe.platformIRPStip;
+  ip.platformIRPVseip = probe.platformIRPVseip;
+  ip.platformIRPVstip = probe.platformIRPVstip;
+  ip.fromAIAMeip = probe.fromAIAMeip;
+  ip.fromAIASeip = probe.fromAIASeip;
+  ip.localCounterOverflowInterruptReq = probe.localCounterOverflowInterruptReq;
+  proxy->non_reg_interrupt_pending(ip);
   return STATE_OK;
 }
 #endif // CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
 
 #ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+bool AiaChecker::get_valid(const DifftestSyncAIAEvent &probe) {
+  return probe.valid;
+}
+void AiaChecker::clear_valid(DifftestSyncAIAEvent &probe) {
+  probe.valid = 0;
+}
+
 int AiaChecker::check(const DifftestSyncAIAEvent &probe) {
-  proxy->sync_aia(probe);
+  struct FromAIA aia;
+  aia.mtopei = probe.mtopei;
+  aia.stopei = probe.stopei;
+  aia.vstopei = probe.vstopei;
+  aia.hgeip = probe.hgeip;
+  proxy->sync_aia(aia);
   return STATE_OK;
 }
 #endif // CONFIG_DIFFTEST_SYNCAIAEVENT
 
 #ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
+bool MhpmeventOverflowChecker::get_valid(const DifftestMhpmeventOverflowEvent &probe) {
+  return probe.valid;
+}
+
+void MhpmeventOverflowChecker::clear_valid(DifftestMhpmeventOverflowEvent &probe) {
+  probe.valid = 0;
+}
+
 int MhpmeventOverflowChecker::check(const DifftestMhpmeventOverflowEvent &probe) {
   proxy->mhpmevent_overflow(probe.mhpmeventOverflow);
   return STATE_OK;
@@ -48,6 +95,14 @@ int MhpmeventOverflowChecker::check(const DifftestMhpmeventOverflowEvent &probe)
 #endif // CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
 
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
+bool CustomMflushpwrChecker::get_valid(const DifftestSyncCustomMflushpwrEvent &probe) {
+  return probe.valid;
+}
+
+void CustomMflushpwrChecker::clear_valid(DifftestSyncCustomMflushpwrEvent &probe) {
+  probe.valid = 0;
+}
+
 int CustomMflushpwrChecker::check(const DifftestSyncCustomMflushpwrEvent &probe) {
   proxy->sync_custom_mflushpwr(probe.l2FlushDone);
   return STATE_OK;

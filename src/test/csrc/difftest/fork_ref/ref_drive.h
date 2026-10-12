@@ -17,8 +17,6 @@
 #define DIFFTEST_REF_DRIVE_H
 #include "refproxy.h"
 
-void ref_drive_init(RefProxy &proxy, const DiffTestRegState &regs);
-
 #ifdef CONFIG_DIFFTEST_FAST_REF
 class RefDriveExecutor {
 public:

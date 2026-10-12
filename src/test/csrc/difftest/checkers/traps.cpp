@@ -43,7 +43,10 @@ int ArchEventChecker::do_interrupt(const DifftestArchEvent &probe) {
   } else if (probe.virtualInterruptIsHvictlInject) {
     proxy->virtual_interrupt_is_hvictl_inject(probe.virtualInterruptIsHvictlInject);
   }
-  proxy->intr_delegate(probe);
+  struct InterruptDelegate intrDeleg;
+  intrDeleg.irToHS = probe.irToHS;
+  intrDeleg.irToVS = probe.irToVS;
+  proxy->intr_delegate(intrDeleg);
   proxy->raise_intr(probe.interrupt | (1ULL << 63));
   return STATE_OK;
 }

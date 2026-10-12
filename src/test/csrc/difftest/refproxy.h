@@ -350,10 +350,17 @@ public:
     }
   }
 
-  void intr_delegate(const DifftestArchEvent &src);
-#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
-  void non_reg_interrupt_pending(const DifftestNonRegInterruptPendingEvent &src);
-#endif
+  inline void intr_delegate(struct InterruptDelegate &intrDeleg) {
+    if (ref_interrupt_delegate) {
+      ref_interrupt_delegate(&intrDeleg);
+    }
+  }
+
+  inline void non_reg_interrupt_pending(struct NonRegInterruptPending &ip) {
+    if (ref_non_reg_interrupt_pending) {
+      ref_non_reg_interrupt_pending(&ip);
+    }
+  }
 
   inline void mhpmevent_overflow(uint64_t mhpmeventOverflow) {
     if (raise_mhpmevent_overflow) {
@@ -365,9 +372,13 @@ public:
     return ref_raise_critical_error ? ref_raise_critical_error() : false;
   }
 
-#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-  void sync_aia(const DifftestSyncAIAEvent &src);
-#endif
+  inline void sync_aia(struct FromAIA &src) {
+    if (ref_sync_aia) {
+      ref_sync_aia(&src);
+    } else {
+      Info("Does not support the out-of-core part of AIA.\n");
+    }
+  }
 
   inline void sync_custom_mflushpwr(bool l2FlushDone) {
     if (ref_sync_custom_mflushpwr) {
@@ -595,37 +606,6 @@ struct InterruptDelegate {
   bool irToHS;
   bool irToVS;
 };
-
-inline void RefProxy::intr_delegate(const DifftestArchEvent &src) {
-  if (ref_interrupt_delegate) {
-    InterruptDelegate intrDeleg = {bool(src.irToHS), bool(src.irToVS)};
-    ref_interrupt_delegate(&intrDeleg);
-  }
-}
-
-#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
-inline void RefProxy::non_reg_interrupt_pending(const DifftestNonRegInterruptPendingEvent &src) {
-  if (ref_non_reg_interrupt_pending) {
-    NonRegInterruptPending ip = {bool(src.platformIRPMeip),  bool(src.platformIRPMtip),
-                                 bool(src.platformIRPMsip),  bool(src.platformIRPSeip),
-                                 bool(src.platformIRPStip),  bool(src.platformIRPVseip),
-                                 bool(src.platformIRPVstip), bool(src.fromAIAMeip),
-                                 bool(src.fromAIASeip),      bool(src.localCounterOverflowInterruptReq)};
-    ref_non_reg_interrupt_pending(&ip);
-  }
-}
-#endif
-
-#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-inline void RefProxy::sync_aia(const DifftestSyncAIAEvent &src) {
-  if (ref_sync_aia) {
-    FromAIA aia = {src.mtopei, src.stopei, src.vstopei, src.hgeip};
-    ref_sync_aia(&aia);
-  } else {
-    Info("Does not support the out-of-core part of AIA.\n");
-  }
-}
-#endif
 
 // These structures mirror NEMU's naturally aligned AME ABI. The generated
 // Difftest events may be packed in batch mode; conversion is performed by the

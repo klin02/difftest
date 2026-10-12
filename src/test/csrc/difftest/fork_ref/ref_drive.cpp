@@ -14,15 +14,6 @@
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
 #include "ref_drive.h"
-#include "flash.h"
-#include "ram.h"
-
-void ref_drive_init(RefProxy &proxy, const DiffTestRegState &regs) {
-  proxy.flash_init((const uint8_t *)flash_dev.base, flash_dev.img_size, flash_dev.img_path);
-  simMemory->clone_on_demand(
-      [&proxy](uint64_t offset, void *src, size_t n) { proxy.mem_init(PMEM_BASE + offset, src, n, DUT_TO_REF); }, true);
-  proxy.regcpy(&regs, FIRST_INST_ADDRESS);
-}
 
 #ifdef CONFIG_DIFFTEST_FAST_REF
 #include "checkers.h"
@@ -105,7 +96,8 @@ RefDriveExecutor::Result RefDriveExecutor::run_state(State &dut, CommitData comm
           proxy->trigger_nmi(true);
         else if (e.virtualInterruptIsHvictlInject)
           proxy->virtual_interrupt_is_hvictl_inject(true);
-        proxy->intr_delegate(e);
+        InterruptDelegate delegation = {bool(e.irToHS), bool(e.irToVS)};
+        proxy->intr_delegate(delegation);
         proxy->raise_intr(e.interrupt | (1ULL << 63));
       } else if (ref_exception_is_guided(e.exception)) {
         ExecutionGuide guide = {};
