@@ -312,7 +312,7 @@ public:
 
   inline void skip_one(bool isRVC, bool rfwen, bool fpwen, bool vecwen, uint32_t wdest, uint64_t wdata) {
     bool wen = rfwen | fpwen;
-    if (ref_skip_one && !fpwen && !vecwen) {
+    if (ref_skip_one) {
       ref_skip_one(isRVC, wen, wdest, wdata);
     } else {
       sync();
