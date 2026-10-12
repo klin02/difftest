@@ -96,10 +96,6 @@ int FastRefChecker::do_step() {
     return DiffTestChecker::STATE_ERROR;
   if (result.status == RefDriveExecutor::CRITICAL_MATCH || result.status == RefDriveExecutor::CRITICAL_MISMATCH) {
     const bool match = result.status == RefDriveExecutor::CRITICAL_MATCH;
-    if (match)
-      Info("Core %d dump: HIT CRITICAL ERROR: please check if software cause a double trap.\n", state->coreid);
-    else
-      Info("Core %d dump: DUT critical_error diff REF\n", state->coreid);
     bool provisional = false;
 #ifdef CONFIG_DIFFTEST_FORK_REF
     provisional = difftest_ref_fork_enabled();
@@ -108,14 +104,6 @@ int FastRefChecker::do_step() {
     state->raise_trap(match || provisional ? STATE_GOODTRAP : STATE_ABORT);
     return DiffTestChecker::STATE_TRAP;
   }
-  if (result.arch_event) {
-    const auto &event = dut->event;
-    if (event.interrupt)
-      state->record_interrupt(event.exceptionPC, event.exceptionInst, event.interrupt);
-    else
-      state->record_exception(event.exceptionPC, event.exceptionInst, event.exception);
-    self->arch_event_checker->discard();
-  }
   if (result.committed_instrs) {
     state->has_progress = true;
     state->last_commit_cycle = dut->trap.cycleCnt;
@@ -123,6 +111,6 @@ int FastRefChecker::do_step() {
   }
   for (auto &commit: dut->commit)
     commit.valid = 0;
-  return DiffTestChecker::STATE_OK;
+  return result.status == RefDriveExecutor::TRAP ? DiffTestChecker::STATE_TRAP : DiffTestChecker::STATE_OK;
 }
 #endif

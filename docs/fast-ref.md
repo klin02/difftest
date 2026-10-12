@@ -9,14 +9,16 @@ compare state/store hashes, store count and squash stamp. A SLOW checker with
 a valid starting prefix and successful DUT checks can replace a divergent FAST
 leader using its existing REF/parser state; authoritative checker failure terminates.
 
-`DiffRefDriveState` is generated from the existing commit and sync bundles.
-`RefDriveExecutor` accepts either the full DUT state or this compact state;
-online FAST reads the full state directly without copying registers. It keeps
-pending instruction counts across windows, up to 65536. Sync, skip, architectural
-events, terminal traps and fork checkpoints flush pending execution first.
-`ref_drive_init` shares first-commit memory/register initialization. Trace users
-can reuse these interfaces without duplicating REF execution logic; checker
-lifecycle and fork trust remain in DiffTest.
+`RefDriveState` in `fork_ref/ref_drive.h` contains the existing commit and sync
+bundle types, registers and skip data. Its constructor extracts these fields
+from `DiffTestState`; Scala generation and the native state layout are unchanged.
+`RefDriveExecutor` reads native online state directly or a const compact state.
+A persistent checker queue reuses the existing sync and CriticalError handlers;
+architectural events use `ArchEventChecker`. Pending instructions accumulate
+across windows up to 65536 and flush before sync, skip, events, terminal traps
+and fork checkpoints. First-commit initialization stays in
+`FirstInstrCommitChecker::init_ref`. Trace only stores and reads the compact
+state; execution and fork trust remain in DiffTest.
 
 Generate normal FPGA headers first; rebuild when changing build flags.
 NEMU requires `CONFIG_FAST_REF`; fork also requires enabled store hashing.

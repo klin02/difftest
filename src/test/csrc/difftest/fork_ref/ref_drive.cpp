@@ -14,22 +14,71 @@
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
 #include "ref_drive.h"
-
-#ifdef CONFIG_DIFFTEST_FAST_REF
-#include "checkers.h"
 #include "diffstate.h"
 #include <algorithm>
 
-// Keep these causes consistent with ArchEventChecker::do_exception.
-enum {
-  EX_IPF = 12,
-  EX_LPF = 13,
-  EX_SPF = 15,
-  EX_HWE = 19,
-  EX_IGPF = 20,
-  EX_LGPF = 21,
-  EX_SGPF = 23
-};
+RefDriveState::RefDriveState(const DiffTestState &state) : regs(state.regs), event(state.event), trap(state.trap) {
+  std::copy(std::begin(state.commit), std::end(state.commit), std::begin(commit));
+#ifdef CONFIG_DIFFTEST_LRSCEVENT
+  lrsc = state.lrsc;
+#endif
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  non_reg_interrupt_pending = state.non_reg_interrupt_pending;
+#endif
+#ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
+  mhpmevent_overflow = state.mhpmevent_overflow;
+#endif
+#ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
+  critical_error = state.critical_error;
+#endif
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  sync_aia = state.sync_aia;
+#endif
+#ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
+  sync_custom_mflushpwr = state.sync_custom_mflushpwr;
+#endif
+  for (int i = 0; i < CONFIG_DIFF_COMMIT_WIDTH; ++i)
+    if (commit[i].valid && commit[i].skip && (commit[i].rfwen || commit[i].fpwen))
+      commit_data[i] = get_commit_data(&state, i);
+}
+
+#ifdef CONFIG_DIFFTEST_FAST_REF
+#include "checkers.h"
+
+template <typename Checker, typename Probe>
+void RefDriveExecutor::add_checker(Probe DiffTestState::*native_member, Probe RefDriveState::*drive_member) {
+  auto checker = std::make_shared<Checker>(typename Checker::GetProbeFn{}, state, proxy);
+  checkers.push_back([this, checker, native_member, drive_member] {
+    return native ? checker->run(native->*native_member, this) : checker->run(drive->*drive_member, this);
+  });
+}
+
+RefDriveExecutor::RefDriveExecutor(RefProxy *proxy, DiffState *state) : proxy(proxy), state(state) {
+#ifdef CONFIG_DIFFTEST_LRSCEVENT
+  add_checker<LrScChecker>(&DiffTestState::lrsc, &RefDriveState::lrsc);
+#endif
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  add_checker<NonRegInterruptPendingChecker>(&DiffTestState::non_reg_interrupt_pending,
+                                             &RefDriveState::non_reg_interrupt_pending);
+#endif
+#ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
+  add_checker<MhpmeventOverflowChecker>(&DiffTestState::mhpmevent_overflow, &RefDriveState::mhpmevent_overflow);
+#endif
+#ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
+  add_checker<CriticalErrorChecker>(&DiffTestState::critical_error, &RefDriveState::critical_error);
+#endif
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  add_checker<AiaChecker>(&DiffTestState::sync_aia, &RefDriveState::sync_aia);
+#endif
+#ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
+  add_checker<CustomMflushpwrChecker>(&DiffTestState::sync_custom_mflushpwr, &RefDriveState::sync_custom_mflushpwr);
+#endif
+  arch_event_checker = std::make_unique<ArchEventChecker>(
+      ArchEventChecker::GetProbeFn{}, state, proxy,
+      [this]() -> const DiffTestRegState & { return native ? native->regs : drive->regs; });
+}
+
+RefDriveExecutor::~RefDriveExecutor() = default;
 
 bool RefDriveExecutor::execute(uint64_t instr_count) {
   while (instr_count) {
@@ -60,71 +109,23 @@ bool RefDriveExecutor::flush() {
   return true;
 }
 
-template <typename Checker, typename Probe> bool RefDriveExecutor::sync(Probe &probe) {
-  return !probe.valid || Checker({}, nullptr, proxy).run(probe, this) == DiffTestChecker::STATE_OK;
-}
-
 template <typename State, typename CommitData>
 RefDriveExecutor::Result RefDriveExecutor::run_state(State &dut, CommitData commit_data) {
   Result result;
-#ifdef CONFIG_DIFFTEST_LRSCEVENT
-  if (!sync<LrScChecker>(dut.lrsc))
-    return {ERROR};
-#endif
-#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
-  if (!sync<NonRegInterruptPendingChecker>(dut.non_reg_interrupt_pending))
-    return {ERROR};
-#endif
-#ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
-  if (!sync<MhpmeventOverflowChecker>(dut.mhpmevent_overflow))
-    return {ERROR};
-#endif
-#ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
-  if (dut.critical_error.valid) {
-    if (!flush())
+  for (auto &checker: checkers) {
+    const int ret = checker();
+    if (ret == DiffTestChecker::STATE_TRAP)
+      return {state->trap_code == STATE_GOODTRAP ? CRITICAL_MATCH : CRITICAL_MISMATCH};
+    if (ret)
       return {ERROR};
-    const bool match = proxy->raise_critical_error() == dut.critical_error.criticalError;
-    if constexpr (!std::is_const_v<State>)
-      dut.critical_error.valid = 0;
-    return {match ? CRITICAL_MATCH : CRITICAL_MISMATCH};
   }
-#endif
-#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-  if (!sync<AiaChecker>(dut.sync_aia))
-    return {ERROR};
-#endif
-#ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
-  if (!sync<CustomMflushpwrChecker>(dut.sync_custom_mflushpwr))
-    return {ERROR};
-#endif
   for (int i = 0; i < CONFIG_DIFF_COMMIT_WIDTH; ++i) {
     if (dut.event.valid && i == dut.event.isLatter) {
-      if (!flush())
+      const int ret = arch_event_checker->run(dut.event, this);
+      if (ret == DiffTestChecker::STATE_TRAP) {
+        result.status = TRAP;
+      } else if (ret) {
         return {ERROR};
-      const auto &e = dut.event;
-      if (e.interrupt) {
-        if (e.hasNMI)
-          proxy->trigger_nmi(true);
-        else if (e.virtualInterruptIsHvictlInject)
-          proxy->virtual_interrupt_is_hvictl_inject(true);
-        InterruptDelegate delegation = {bool(e.irToHS), bool(e.irToVS)};
-        proxy->intr_delegate(delegation);
-        proxy->raise_intr(e.interrupt | (1ULL << 63));
-      } else if (e.exception == EX_IPF || e.exception == EX_LPF || e.exception == EX_SPF || e.exception == EX_IGPF ||
-                 e.exception == EX_LGPF || e.exception == EX_SGPF || e.exception == EX_HWE) {
-        ExecutionGuide guide = {};
-        guide.force_raise_exception = true;
-        guide.exception_num = e.exception;
-        guide.mtval = dut.regs.csr.mtval;
-        guide.stval = dut.regs.csr.stval;
-#ifdef CONFIG_DIFFTEST_HCSRSTATE
-        guide.mtval2 = dut.regs.hcsr.mtval2;
-        guide.htval = dut.regs.hcsr.htval;
-        guide.vstval = dut.regs.hcsr.vstval;
-#endif
-        proxy->guided_exec(guide);
-      } else {
-        proxy->ref_exec(1);
       }
       result.arch_event = true;
       break;
@@ -147,10 +148,14 @@ RefDriveExecutor::Result RefDriveExecutor::run_state(State &dut, CommitData comm
 }
 
 RefDriveExecutor::Result RefDriveExecutor::run(DiffTestState &state) {
+  native = &state;
+  drive = nullptr;
   return run_state(state, [&state](int i) { return get_commit_data(&state, i); });
 }
 
-RefDriveExecutor::Result RefDriveExecutor::run(const DiffTestState &state, const uint64_t commit_data[]) {
-  return run_state(state, [commit_data](int i) { return commit_data[i]; });
+RefDriveExecutor::Result RefDriveExecutor::run(const RefDriveState &state) {
+  native = nullptr;
+  drive = &state;
+  return run_state(state, [&state](int i) { return state.commit_data[i]; });
 }
 #endif

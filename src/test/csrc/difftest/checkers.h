@@ -164,10 +164,10 @@ public:
   }
 };
 
-class ArchEventChecker : public ProbeChecker<DifftestArchEvent> {
+class ArchEventChecker : public SyncChecker<DifftestArchEvent> {
 public:
   ArchEventChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy, GetRegsFn get_regs)
-      : ProbeChecker<DifftestArchEvent>(get_probe, state, proxy), get_regs(std::move(get_regs)) {}
+      : SyncChecker<DifftestArchEvent>(get_probe, state, proxy), get_regs(std::move(get_regs)) {}
 
 private:
   GetRegsFn get_regs;
@@ -200,7 +200,7 @@ class Difftest;
 class FastRefChecker : public DiffTestChecker {
 public:
   FastRefChecker(Difftest *self, DiffState *state, RefProxy *proxy)
-      : DiffTestChecker(state, proxy), self(self), driver(proxy) {}
+      : DiffTestChecker(state, proxy), self(self), driver(proxy, state) {}
   int do_step() override;
   int flush();
 
@@ -371,10 +371,10 @@ private:
 #endif // CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
 
 #ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
-class CriticalErrorChecker : public ProbeChecker<DifftestCriticalErrorEvent> {
+class CriticalErrorChecker : public SyncChecker<DifftestCriticalErrorEvent> {
 public:
   CriticalErrorChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy)
-      : ProbeChecker<DifftestCriticalErrorEvent>(get_probe, state, proxy) {}
+      : SyncChecker<DifftestCriticalErrorEvent>(get_probe, state, proxy) {}
 
 private:
   bool get_valid(const DifftestCriticalErrorEvent &probe) override;
