@@ -72,13 +72,7 @@ RefDriveExecutor::Result RefDriveExecutor::run_state(const State &dut, CommitDat
   if (dut.non_reg_interrupt_pending.valid) {
     if (!flush())
       return {ERROR};
-    const auto &p = dut.non_reg_interrupt_pending;
-    NonRegInterruptPending pending = {bool(p.platformIRPMeip),  bool(p.platformIRPMtip),
-                                      bool(p.platformIRPMsip),  bool(p.platformIRPSeip),
-                                      bool(p.platformIRPStip),  bool(p.platformIRPVseip),
-                                      bool(p.platformIRPVstip), bool(p.fromAIAMeip),
-                                      bool(p.fromAIASeip),      bool(p.localCounterOverflowInterruptReq)};
-    proxy->non_reg_interrupt_pending(pending);
+    proxy->non_reg_interrupt_pending(dut.non_reg_interrupt_pending);
   }
 #endif
 #ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
@@ -99,9 +93,7 @@ RefDriveExecutor::Result RefDriveExecutor::run_state(const State &dut, CommitDat
   if (dut.sync_aia.valid) {
     if (!flush())
       return {ERROR};
-    const auto &a = dut.sync_aia;
-    FromAIA aia = {a.mtopei, a.stopei, a.vstopei, a.hgeip};
-    proxy->sync_aia(aia);
+    proxy->sync_aia(dut.sync_aia);
   }
 #endif
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
@@ -121,8 +113,7 @@ RefDriveExecutor::Result RefDriveExecutor::run_state(const State &dut, CommitDat
           proxy->trigger_nmi(true);
         else if (e.virtualInterruptIsHvictlInject)
           proxy->virtual_interrupt_is_hvictl_inject(true);
-        InterruptDelegate delegation = {bool(e.irToHS), bool(e.irToVS)};
-        proxy->intr_delegate(delegation);
+        proxy->intr_delegate(e);
         proxy->raise_intr(e.interrupt | (1ULL << 63));
       } else if (ref_exception_is_guided(e.exception)) {
         ExecutionGuide guide = {};

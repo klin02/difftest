@@ -44,18 +44,7 @@ void NonRegInterruptPendingChecker::clear_valid(DifftestNonRegInterruptPendingEv
 }
 
 int NonRegInterruptPendingChecker::check(const DifftestNonRegInterruptPendingEvent &probe) {
-  struct NonRegInterruptPending ip;
-  ip.platformIRPMeip = probe.platformIRPMeip;
-  ip.platformIRPMtip = probe.platformIRPMtip;
-  ip.platformIRPMsip = probe.platformIRPMsip;
-  ip.platformIRPSeip = probe.platformIRPSeip;
-  ip.platformIRPStip = probe.platformIRPStip;
-  ip.platformIRPVseip = probe.platformIRPVseip;
-  ip.platformIRPVstip = probe.platformIRPVstip;
-  ip.fromAIAMeip = probe.fromAIAMeip;
-  ip.fromAIASeip = probe.fromAIASeip;
-  ip.localCounterOverflowInterruptReq = probe.localCounterOverflowInterruptReq;
-  proxy->non_reg_interrupt_pending(ip);
+  proxy->non_reg_interrupt_pending(probe);
   return STATE_OK;
 }
 #endif // CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
@@ -69,12 +58,7 @@ void AiaChecker::clear_valid(DifftestSyncAIAEvent &probe) {
 }
 
 int AiaChecker::check(const DifftestSyncAIAEvent &probe) {
-  struct FromAIA aia;
-  aia.mtopei = probe.mtopei;
-  aia.stopei = probe.stopei;
-  aia.vstopei = probe.vstopei;
-  aia.hgeip = probe.hgeip;
-  proxy->sync_aia(aia);
+  proxy->sync_aia(probe);
   return STATE_OK;
 }
 #endif // CONFIG_DIFFTEST_SYNCAIAEVENT
