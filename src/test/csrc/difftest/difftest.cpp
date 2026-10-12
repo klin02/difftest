@@ -438,12 +438,8 @@ void Difftest::init_checkers() {
       [this]() -> DifftestMhpmeventOverflowEvent & { return dut->mhpmevent_overflow; }, state, proxy));
 #endif
 #ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
-  auto *critical =
-      new CriticalErrorChecker([this]() -> DifftestCriticalErrorEvent & { return dut->critical_error; }, state, proxy);
-  add_sync_checker(critical);
-#ifdef CONFIG_DIFFTEST_FAST_REF
-  critical_error_checker = critical;
-#endif
+  add_sync_checker(
+      new CriticalErrorChecker([this]() -> DifftestCriticalErrorEvent & { return dut->critical_error; }, state, proxy));
 #endif
 #ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
   add_sync_checker(new AiaChecker([this]() -> DifftestSyncAIAEvent & { return dut->sync_aia; }, state, proxy));

@@ -1,6 +1,6 @@
 /***************************************************************************************
-* Copyright (c) 2020-2025 Institute of Computing Technology, Chinese Academy of Sciences
-* Copyright (c) 2025 Beijing Institute of Open Source Chip
+* Copyright (c) 2020-2026 Institute of Computing Technology, Chinese Academy of Sciences
+* Copyright (c) 2025-2026 Beijing Institute of Open Source Chip
 *
 * DiffTest is licensed under Mulan PSL v2.
 * You can use this software according to the terms and conditions of the Mulan PSL v2.
@@ -17,14 +17,6 @@
 #include "checkers.h"
 
 #ifdef CONFIG_DIFFTEST_LRSCEVENT
-bool LrScChecker::get_valid(const DifftestLrScEvent &probe) {
-  return probe.valid;
-}
-
-void LrScChecker::clear_valid(DifftestLrScEvent &probe) {
-  probe.valid = 0;
-}
-
 int LrScChecker::check(const DifftestLrScEvent &probe) {
   // sync lr/sc reg microarchitectural status to the REF
   struct SyncState sync;
@@ -35,14 +27,6 @@ int LrScChecker::check(const DifftestLrScEvent &probe) {
 #endif // CONFIG_DIFFTEST_LRSCEVENT
 
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
-bool NonRegInterruptPendingChecker::get_valid(const DifftestNonRegInterruptPendingEvent &probe) {
-  return probe.valid;
-}
-
-void NonRegInterruptPendingChecker::clear_valid(DifftestNonRegInterruptPendingEvent &probe) {
-  probe.valid = 0;
-}
-
 int NonRegInterruptPendingChecker::check(const DifftestNonRegInterruptPendingEvent &probe) {
   proxy->non_reg_interrupt_pending(probe);
   return STATE_OK;
@@ -50,13 +34,6 @@ int NonRegInterruptPendingChecker::check(const DifftestNonRegInterruptPendingEve
 #endif // CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
 
 #ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-bool AiaChecker::get_valid(const DifftestSyncAIAEvent &probe) {
-  return probe.valid;
-}
-void AiaChecker::clear_valid(DifftestSyncAIAEvent &probe) {
-  probe.valid = 0;
-}
-
 int AiaChecker::check(const DifftestSyncAIAEvent &probe) {
   proxy->sync_aia(probe);
   return STATE_OK;
@@ -64,14 +41,6 @@ int AiaChecker::check(const DifftestSyncAIAEvent &probe) {
 #endif // CONFIG_DIFFTEST_SYNCAIAEVENT
 
 #ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
-bool MhpmeventOverflowChecker::get_valid(const DifftestMhpmeventOverflowEvent &probe) {
-  return probe.valid;
-}
-
-void MhpmeventOverflowChecker::clear_valid(DifftestMhpmeventOverflowEvent &probe) {
-  probe.valid = 0;
-}
-
 int MhpmeventOverflowChecker::check(const DifftestMhpmeventOverflowEvent &probe) {
   proxy->mhpmevent_overflow(probe.mhpmeventOverflow);
   return STATE_OK;
@@ -79,14 +48,6 @@ int MhpmeventOverflowChecker::check(const DifftestMhpmeventOverflowEvent &probe)
 #endif // CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
 
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
-bool CustomMflushpwrChecker::get_valid(const DifftestSyncCustomMflushpwrEvent &probe) {
-  return probe.valid;
-}
-
-void CustomMflushpwrChecker::clear_valid(DifftestSyncCustomMflushpwrEvent &probe) {
-  probe.valid = 0;
-}
-
 int CustomMflushpwrChecker::check(const DifftestSyncCustomMflushpwrEvent &probe) {
   proxy->sync_custom_mflushpwr(probe.l2FlushDone);
   return STATE_OK;

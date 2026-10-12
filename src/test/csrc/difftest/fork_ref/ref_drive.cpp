@@ -25,6 +25,7 @@ void ref_drive_init(RefProxy &proxy, const DiffTestRegState &regs) {
 }
 
 #ifdef CONFIG_DIFFTEST_FAST_REF
+#include "checkers.h"
 #include "diffstate.h"
 #include <algorithm>
 
@@ -57,51 +58,42 @@ bool RefDriveExecutor::flush() {
   return true;
 }
 
+template <typename Checker, typename Probe> bool RefDriveExecutor::sync(Probe &probe) {
+  return !probe.valid || Checker({}, nullptr, proxy).run(probe, this) == DiffTestChecker::STATE_OK;
+}
+
 template <typename State, typename CommitData>
-RefDriveExecutor::Result RefDriveExecutor::run_state(const State &dut, CommitData commit_data) {
+RefDriveExecutor::Result RefDriveExecutor::run_state(State &dut, CommitData commit_data) {
   Result result;
 #ifdef CONFIG_DIFFTEST_LRSCEVENT
-  if (dut.lrsc.valid) {
-    if (!flush())
-      return {ERROR};
-    SyncState sync = {uint64_t(!dut.lrsc.success)};
-    proxy->uarchstatus_sync(&sync);
-  }
+  if (!sync<LrScChecker>(dut.lrsc))
+    return {ERROR};
 #endif
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
-  if (dut.non_reg_interrupt_pending.valid) {
-    if (!flush())
-      return {ERROR};
-    proxy->non_reg_interrupt_pending(dut.non_reg_interrupt_pending);
-  }
+  if (!sync<NonRegInterruptPendingChecker>(dut.non_reg_interrupt_pending))
+    return {ERROR};
 #endif
 #ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
-  if (dut.mhpmevent_overflow.valid) {
-    if (!flush())
-      return {ERROR};
-    proxy->mhpmevent_overflow(dut.mhpmevent_overflow.mhpmeventOverflow);
-  }
+  if (!sync<MhpmeventOverflowChecker>(dut.mhpmevent_overflow))
+    return {ERROR};
 #endif
 #ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
   if (dut.critical_error.valid) {
     if (!flush())
       return {ERROR};
-    return {proxy->raise_critical_error() == dut.critical_error.criticalError ? CRITICAL_MATCH : CRITICAL_MISMATCH};
+    const bool match = proxy->raise_critical_error() == dut.critical_error.criticalError;
+    if constexpr (!std::is_const_v<State>)
+      dut.critical_error.valid = 0;
+    return {match ? CRITICAL_MATCH : CRITICAL_MISMATCH};
   }
 #endif
 #ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-  if (dut.sync_aia.valid) {
-    if (!flush())
-      return {ERROR};
-    proxy->sync_aia(dut.sync_aia);
-  }
+  if (!sync<AiaChecker>(dut.sync_aia))
+    return {ERROR};
 #endif
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
-  if (dut.sync_custom_mflushpwr.valid) {
-    if (!flush())
-      return {ERROR};
-    proxy->sync_custom_mflushpwr(dut.sync_custom_mflushpwr.l2FlushDone);
-  }
+  if (!sync<CustomMflushpwrChecker>(dut.sync_custom_mflushpwr))
+    return {ERROR};
 #endif
   for (int i = 0; i < CONFIG_DIFF_COMMIT_WIDTH; ++i) {
     if (dut.event.valid && i == dut.event.isLatter) {
@@ -150,7 +142,7 @@ RefDriveExecutor::Result RefDriveExecutor::run_state(const State &dut, CommitDat
   return result;
 }
 
-RefDriveExecutor::Result RefDriveExecutor::run(const DiffTestState &state) {
+RefDriveExecutor::Result RefDriveExecutor::run(DiffTestState &state) {
   return run_state(state, [&state](int i) { return get_commit_data(&state, i); });
 }
 

@@ -94,15 +94,6 @@ int FastRefChecker::do_step() {
 #endif
   if (result.status == RefDriveExecutor::ERROR)
     return DiffTestChecker::STATE_ERROR;
-  // Consume the same sync probes as the SLOW checker chain, without executing them twice.
-  for (size_t i = 1; i < self->fast_checkers.size() - 1; ++i) {
-    auto *checker = self->fast_checkers[i];
-    checker->discard();
-#ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
-    if (checker == self->critical_error_checker && result.status != RefDriveExecutor::OK)
-      break;
-#endif
-  }
   if (result.status == RefDriveExecutor::CRITICAL_MATCH || result.status == RefDriveExecutor::CRITICAL_MISMATCH) {
     const bool match = result.status == RefDriveExecutor::CRITICAL_MATCH;
     if (match)

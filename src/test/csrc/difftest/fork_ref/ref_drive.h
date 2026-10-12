@@ -34,7 +34,7 @@ public:
     bool arch_event = false;
   };
   explicit RefDriveExecutor(RefProxy *proxy) : proxy(proxy) {}
-  Result run(const DiffTestState &state);
+  Result run(DiffTestState &state);
   Result run(const DiffRefDriveState &state, const uint64_t commit_data[]);
   bool execute(uint64_t instr_count);
   bool flush();
@@ -43,7 +43,8 @@ public:
   }
 
 private:
-  template <typename State, typename CommitData> Result run_state(const State &state, CommitData commit_data);
+  template <typename Checker, typename Probe> bool sync(Probe &probe);
+  template <typename State, typename CommitData> Result run_state(State &state, CommitData commit_data);
   static constexpr uint64_t MAX_PENDING = 65536;
   RefProxy *proxy;
   uint64_t pending_instrs = 0;

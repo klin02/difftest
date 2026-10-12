@@ -22,6 +22,8 @@
 #include "matrix_store_tracker.h"
 #include "refproxy.h"
 #include "stopwatch.h"
+#include <type_traits>
+class RefDriveExecutor;
 #ifdef CONFIG_DIFFTEST_FAST_REF
 #include "fork_ref/ref_drive.h"
 #endif
@@ -139,6 +141,37 @@ protected:
   virtual int check(const Probe &probe) = 0;
 };
 
+template <typename Probe> class SyncChecker : public ProbeChecker<Probe> {
+public:
+  using ProbeChecker<Probe>::ProbeChecker;
+
+  template <typename Event> int run(Event &probe, RefDriveExecutor *executor = nullptr) {
+    if (!this->get_valid(probe))
+      return this->STATE_OK;
+#ifdef CONFIG_DIFFTEST_FAST_REF
+    if (executor && !executor->flush())
+      return this->STATE_ERROR;
+#endif
+    int ret = this->check(probe);
+    // Trace replay reads its probes; online checking consumes them.
+    if constexpr (!std::is_const_v<Event>)
+      this->clear_valid(probe);
+    return ret;
+  }
+
+  int do_step() override {
+    return run(this->get_probe());
+  }
+
+protected:
+  bool get_valid(const Probe &probe) override {
+    return probe.valid;
+  }
+  void clear_valid(Probe &probe) override {
+    probe.valid = 0;
+  }
+};
+
 class ArchEventChecker : public ProbeChecker<DifftestArchEvent> {
 public:
   ArchEventChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy, GetRegsFn get_regs)
@@ -225,14 +258,12 @@ private:
 };
 
 #ifdef CONFIG_DIFFTEST_LRSCEVENT
-class LrScChecker : public ProbeChecker<DifftestLrScEvent> {
+class LrScChecker : public SyncChecker<DifftestLrScEvent> {
 public:
   LrScChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy)
-      : ProbeChecker<DifftestLrScEvent>(get_probe, state, proxy) {}
+      : SyncChecker<DifftestLrScEvent>(get_probe, state, proxy) {}
 
 private:
-  bool get_valid(const DifftestLrScEvent &probe) override;
-  void clear_valid(DifftestLrScEvent &probe) override;
   int check(const DifftestLrScEvent &probe) override;
 };
 #endif // CONFIG_DIFFTEST_LRSCEVENT
@@ -292,53 +323,45 @@ private:
 #endif // CONFIG_DIFFTEST_REFILLEVENT
 
 #ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
-class NonRegInterruptPendingChecker : public ProbeChecker<DifftestNonRegInterruptPendingEvent> {
+class NonRegInterruptPendingChecker : public SyncChecker<DifftestNonRegInterruptPendingEvent> {
 public:
   NonRegInterruptPendingChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy)
-      : ProbeChecker<DifftestNonRegInterruptPendingEvent>(get_probe, state, proxy) {}
+      : SyncChecker<DifftestNonRegInterruptPendingEvent>(get_probe, state, proxy) {}
 
 private:
-  bool get_valid(const DifftestNonRegInterruptPendingEvent &probe) override;
-  void clear_valid(DifftestNonRegInterruptPendingEvent &probe) override;
   int check(const DifftestNonRegInterruptPendingEvent &probe) override;
 };
 #endif // CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
 
 #ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
-class MhpmeventOverflowChecker : public ProbeChecker<DifftestMhpmeventOverflowEvent> {
+class MhpmeventOverflowChecker : public SyncChecker<DifftestMhpmeventOverflowEvent> {
 public:
   MhpmeventOverflowChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy)
-      : ProbeChecker<DifftestMhpmeventOverflowEvent>(get_probe, state, proxy) {}
+      : SyncChecker<DifftestMhpmeventOverflowEvent>(get_probe, state, proxy) {}
 
 private:
-  bool get_valid(const DifftestMhpmeventOverflowEvent &probe) override;
-  void clear_valid(DifftestMhpmeventOverflowEvent &probe) override;
   int check(const DifftestMhpmeventOverflowEvent &probe) override;
 };
 #endif // CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
 
 #ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-class AiaChecker : public ProbeChecker<DifftestSyncAIAEvent> {
+class AiaChecker : public SyncChecker<DifftestSyncAIAEvent> {
 public:
   AiaChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy)
-      : ProbeChecker<DifftestSyncAIAEvent>(get_probe, state, proxy) {}
+      : SyncChecker<DifftestSyncAIAEvent>(get_probe, state, proxy) {}
 
 private:
-  bool get_valid(const DifftestSyncAIAEvent &probe) override;
-  void clear_valid(DifftestSyncAIAEvent &probe) override;
   int check(const DifftestSyncAIAEvent &probe) override;
 };
 #endif // CONFIG_DIFFTEST_SYNCAIAEVENT
 
 #ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
-class CustomMflushpwrChecker : public ProbeChecker<DifftestSyncCustomMflushpwrEvent> {
+class CustomMflushpwrChecker : public SyncChecker<DifftestSyncCustomMflushpwrEvent> {
 public:
   CustomMflushpwrChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy)
-      : ProbeChecker<DifftestSyncCustomMflushpwrEvent>(get_probe, state, proxy) {}
+      : SyncChecker<DifftestSyncCustomMflushpwrEvent>(get_probe, state, proxy) {}
 
 private:
-  bool get_valid(const DifftestSyncCustomMflushpwrEvent &probe) override;
-  void clear_valid(DifftestSyncCustomMflushpwrEvent &probe) override;
   int check(const DifftestSyncCustomMflushpwrEvent &probe) override;
 };
 #endif // CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT

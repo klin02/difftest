@@ -247,10 +247,6 @@ private:
 #ifdef CONFIG_DIFFTEST_FAST_REF
   std::vector<DiffTestChecker *> fast_checkers; // First/sync checkers are owned by checkers.
   FastRefChecker *fast_ref_checker = nullptr;
-#ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
-  CriticalErrorChecker *critical_error_checker = nullptr;
-#endif
-
 #endif
   int check_all();
 
