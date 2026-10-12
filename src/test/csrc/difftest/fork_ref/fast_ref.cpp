@@ -87,25 +87,24 @@ int FastRefChecker::flush() {
 
 int FastRefChecker::do_step() {
   auto *dut = self->dut;
-  const RefDriveState drive(*dut);
   const uint64_t before = driver.completed();
-  const auto result = driver.run(drive);
+  const auto result = driver.run(*dut);
 #ifdef CONFIG_DIFFTEST_SQUASH
   state->commit_stamp = (state->commit_stamp + driver.completed() - before) % CONFIG_DIFFTEST_SQUASH_STAMPSIZE;
 #endif
-  if (result == RefDriveExecutor::ERROR)
+  if (result.status == RefDriveExecutor::ERROR)
     return DiffTestChecker::STATE_ERROR;
   // Consume the same sync probes as the SLOW checker chain, without executing them twice.
   for (size_t i = 1; i < self->fast_checkers.size() - 1; ++i) {
     auto *checker = self->fast_checkers[i];
     checker->discard();
 #ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
-    if (checker == self->critical_error_checker && result != RefDriveExecutor::OK)
+    if (checker == self->critical_error_checker && result.status != RefDriveExecutor::OK)
       break;
 #endif
   }
-  if (result == RefDriveExecutor::CRITICAL_MATCH || result == RefDriveExecutor::CRITICAL_MISMATCH) {
-    const bool match = result == RefDriveExecutor::CRITICAL_MATCH;
+  if (result.status == RefDriveExecutor::CRITICAL_MATCH || result.status == RefDriveExecutor::CRITICAL_MISMATCH) {
+    const bool match = result.status == RefDriveExecutor::CRITICAL_MATCH;
     if (match)
       Info("Core %d dump: HIT CRITICAL ERROR: please check if software cause a double trap.\n", state->coreid);
     else
@@ -118,7 +117,7 @@ int FastRefChecker::do_step() {
     state->raise_trap(match || provisional ? STATE_GOODTRAP : STATE_ABORT);
     return DiffTestChecker::STATE_TRAP;
   }
-  if (drive.arch_event) {
+  if (result.arch_event) {
     const auto &event = dut->event;
     if (event.interrupt)
       state->record_interrupt(event.exceptionPC, event.exceptionInst, event.interrupt);
@@ -126,10 +125,10 @@ int FastRefChecker::do_step() {
       state->record_exception(event.exceptionPC, event.exceptionInst, event.exception);
     self->arch_event_checker->discard();
   }
-  if (drive.committed_instrs) {
+  if (result.committed_instrs) {
     state->has_progress = true;
     state->last_commit_cycle = dut->trap.cycleCnt;
-    state->record_group(dut->commit[0].pc, drive.committed_instrs);
+    state->record_group(dut->commit[0].pc, result.committed_instrs);
   }
   for (auto &commit: dut->commit)
     commit.valid = 0;

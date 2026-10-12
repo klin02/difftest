@@ -16,8 +16,7 @@
 
 #include "checkers.h"
 #include "dut.h"
-#include "flash.h"
-#include "ram.h"
+#include "fork_ref/ref_drive.h"
 
 bool FirstInstrCommitChecker::get_valid(const DifftestInstrCommit &probe) {
   return !state->has_commit && probe.valid;
@@ -29,14 +28,7 @@ void FirstInstrCommitChecker::clear_valid(DifftestInstrCommit &probe) {
 
 int FirstInstrCommitChecker::check(const DifftestInstrCommit &probe) {
   Info("The first instruction of core %d has commited. Difftest enabled. \n", state->coreid);
-  proxy->flash_init((const uint8_t *)flash_dev.base, flash_dev.img_size, flash_dev.img_path);
-  simMemory->clone_on_demand(
-      [this](uint64_t offset, void *src, size_t n) {
-        uint64_t dest_addr = PMEM_BASE + offset;
-        proxy->mem_init(dest_addr, src, n, DUT_TO_REF);
-      },
-      true);
-  proxy->regcpy(&get_regs(), FIRST_INST_ADDRESS);
+  ref_drive_init(*proxy, get_regs());
   // Do not reconfig simulator 'proxy->update_config(&nemu_config)' here:
   // If this is main sim thread, simulator has its own initial config
   // If this process is checkpoint wakeuped, simulator's config has already been updated,

@@ -16,76 +16,34 @@
 #ifndef DIFFTEST_REF_DRIVE_H
 #define DIFFTEST_REF_DRIVE_H
 #include "refproxy.h"
+
+void ref_drive_init(RefProxy &proxy, const DiffTestRegState &regs);
+
 #ifdef CONFIG_DIFFTEST_FAST_REF
-// Operations retain the order of commits, skips and synchronization events.
-enum class RefDriveOp {
-  EXEC,
-  SKIP,
-  LRSC,
-  PENDING,
-  OVERFLOW,
-  CRITICAL,
-  AIA,
-  MFLUSH,
-  ARCH_EVENT,
-  END
-};
-
-struct RefDriveState {
-  struct Skip {
-    uint64_t data;
-    uint32_t dest;
-    bool rvc, integer, floating, vector;
-  };
-  struct ArchEvent {
-    uint64_t interrupt;
-    bool nmi, virtual_inject;
-    InterruptDelegate delegation;
-    bool guided;
-    ExecutionGuide guide;
-  };
-  struct Command {
-    RefDriveOp op;
-    union {
-      uint64_t instr_count;
-      Skip skip;
-      SyncState lrsc;
-      NonRegInterruptPending pending;
-      uint64_t overflow;
-      bool critical;
-      FromAIA aia;
-      bool mflush;
-      ArchEvent event;
-    };
-  };
-  static constexpr unsigned MAX_COMMANDS = CONFIG_DIFF_COMMIT_WIDTH + 8;
-  Command commands[MAX_COMMANDS];
-  unsigned num_commands = 0;
-  uint32_t committed_instrs = 0;
-  bool arch_event = false;
-  RefDriveState() = default;
-  explicit RefDriveState(const DiffTestState &dut);
-
-private:
-  Command &append(RefDriveOp op);
-};
-
 class RefDriveExecutor {
 public:
-  enum Result {
+  enum Status {
     OK,
     ERROR,
     CRITICAL_MATCH,
     CRITICAL_MISMATCH
   };
+  struct Result {
+    Status status = OK;
+    uint32_t committed_instrs = 0;
+    bool arch_event = false;
+  };
   explicit RefDriveExecutor(RefProxy *proxy) : proxy(proxy) {}
-  Result run(const RefDriveState &state);
+  Result run(const DiffTestState &state);
+  Result run(const DiffRefDriveState &state, const uint64_t commit_data[]);
+  bool execute(uint64_t instr_count);
   bool flush();
   uint64_t completed() const {
     return executed_instrs;
   }
 
 private:
+  template <typename State, typename CommitData> Result run_state(const State &state, CommitData commit_data);
   static constexpr uint64_t MAX_PENDING = 65536;
   RefProxy *proxy;
   uint64_t pending_instrs = 0;

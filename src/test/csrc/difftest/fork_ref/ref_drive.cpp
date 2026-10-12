@@ -14,90 +14,29 @@
 * See the Mulan PSL v2 for more details.
 ***************************************************************************************/
 #include "ref_drive.h"
+#include "flash.h"
+#include "ram.h"
+
+void ref_drive_init(RefProxy &proxy, const DiffTestRegState &regs) {
+  proxy.flash_init((const uint8_t *)flash_dev.base, flash_dev.img_size, flash_dev.img_path);
+  simMemory->clone_on_demand(
+      [&proxy](uint64_t offset, void *src, size_t n) { proxy.mem_init(PMEM_BASE + offset, src, n, DUT_TO_REF); }, true);
+  proxy.regcpy(&regs, FIRST_INST_ADDRESS);
+}
+
 #ifdef CONFIG_DIFFTEST_FAST_REF
 #include "diffstate.h"
 #include <algorithm>
 
-RefDriveState::Command &RefDriveState::append(RefDriveOp op) {
-  assert(num_commands < MAX_COMMANDS);
-  commands[num_commands].op = op;
-  return commands[num_commands++];
-}
-
-RefDriveState::RefDriveState(const DiffTestState &dut) {
-#ifdef CONFIG_DIFFTEST_LRSCEVENT
-  if (dut.lrsc.valid)
-    append(RefDriveOp::LRSC).lrsc = {uint64_t(!dut.lrsc.success)};
-#endif
-#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
-  if (dut.non_reg_interrupt_pending.valid) {
-    const auto &p = dut.non_reg_interrupt_pending;
-    append(RefDriveOp::PENDING).pending = {bool(p.platformIRPMeip),  bool(p.platformIRPMtip),
-                                           bool(p.platformIRPMsip),  bool(p.platformIRPSeip),
-                                           bool(p.platformIRPStip),  bool(p.platformIRPVseip),
-                                           bool(p.platformIRPVstip), bool(p.fromAIAMeip),
-                                           bool(p.fromAIASeip),      bool(p.localCounterOverflowInterruptReq)};
+bool RefDriveExecutor::execute(uint64_t instr_count) {
+  while (instr_count) {
+    const uint64_t batch = std::min(instr_count, MAX_PENDING - pending_instrs);
+    pending_instrs += batch;
+    instr_count -= batch;
+    if (pending_instrs == MAX_PENDING && !flush())
+      return false;
   }
-#endif
-#ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
-  if (dut.mhpmevent_overflow.valid)
-    append(RefDriveOp::OVERFLOW).overflow = dut.mhpmevent_overflow.mhpmeventOverflow;
-#endif
-#ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
-  if (dut.critical_error.valid) {
-    append(RefDriveOp::CRITICAL).critical = dut.critical_error.criticalError;
-    return;
-  }
-#endif
-#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
-  if (dut.sync_aia.valid) {
-    const auto &a = dut.sync_aia;
-    append(RefDriveOp::AIA).aia = {a.mtopei, a.stopei, a.vstopei, a.hgeip};
-  }
-#endif
-#ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
-  if (dut.sync_custom_mflushpwr.valid)
-    append(RefDriveOp::MFLUSH).mflush = dut.sync_custom_mflushpwr.l2FlushDone;
-#endif
-  for (int i = 0; i < CONFIG_DIFF_COMMIT_WIDTH; ++i) {
-    if (dut.event.valid && i == dut.event.isLatter) {
-      arch_event = true;
-      auto &e = append(RefDriveOp::ARCH_EVENT).event;
-      e.interrupt = dut.event.interrupt;
-      e.nmi = dut.event.hasNMI;
-      e.virtual_inject = dut.event.virtualInterruptIsHvictlInject;
-      e.delegation = {bool(dut.event.irToHS), bool(dut.event.irToVS)};
-      const auto exception = dut.event.exception;
-      e.guided = ref_exception_is_guided(exception);
-      if (!e.interrupt && e.guided) {
-        e.guide = {};
-        e.guide.force_raise_exception = true;
-        e.guide.exception_num = exception;
-        e.guide.mtval = dut.regs.csr.mtval;
-        e.guide.stval = dut.regs.csr.stval;
-#ifdef CONFIG_DIFFTEST_HCSRSTATE
-        e.guide.mtval2 = dut.regs.hcsr.mtval2;
-        e.guide.htval = dut.regs.hcsr.htval;
-        e.guide.vstval = dut.regs.hcsr.vstval;
-#endif
-      }
-      break;
-    }
-    const auto &c = dut.commit[i];
-    if (!c.valid)
-      continue;
-    committed_instrs += 1 + c.nFused;
-    if (c.skip) {
-      append(RefDriveOp::SKIP).skip = {get_commit_data(&dut, i),      c.wdest,       bool(c.isRVC),
-                                       bool(c.rfwen && c.wdest != 0), bool(c.fpwen), bool(c.vecwen)};
-    } else if (num_commands && commands[num_commands - 1].op == RefDriveOp::EXEC) {
-      commands[num_commands - 1].instr_count += 1 + c.nFused;
-    } else {
-      append(RefDriveOp::EXEC).instr_count = 1 + c.nFused;
-    }
-  }
-  if (dut.trap.hasTrap)
-    append(RefDriveOp::END);
+  return true;
 }
 
 bool RefDriveExecutor::flush() {
@@ -118,69 +57,113 @@ bool RefDriveExecutor::flush() {
   return true;
 }
 
-RefDriveExecutor::Result RefDriveExecutor::run(const RefDriveState &state) {
-  for (unsigned i = 0; i < state.num_commands; ++i) {
-    const auto &c = state.commands[i];
-    if (c.op == RefDriveOp::EXEC) {
-      uint64_t remaining = c.instr_count;
-      while (remaining) {
-        const uint64_t batch = std::min(remaining, MAX_PENDING - pending_instrs);
-        pending_instrs += batch;
-        remaining -= batch;
-        if (pending_instrs == MAX_PENDING && !flush())
-          return ERROR;
-      }
-      continue;
-    }
+template <typename State, typename CommitData>
+RefDriveExecutor::Result RefDriveExecutor::run_state(const State &dut, CommitData commit_data) {
+  Result result;
+#ifdef CONFIG_DIFFTEST_LRSCEVENT
+  if (dut.lrsc.valid) {
     if (!flush())
-      return ERROR;
-    switch (c.op) {
-      case RefDriveOp::SKIP: {
-        const auto &s = c.skip;
-        proxy->skip_one(s.rvc, s.integer, s.floating, s.vector, s.dest, s.data);
-        break;
+      return {ERROR};
+    SyncState sync = {uint64_t(!dut.lrsc.success)};
+    proxy->uarchstatus_sync(&sync);
+  }
+#endif
+#ifdef CONFIG_DIFFTEST_NONREGINTERRUPTPENDINGEVENT
+  if (dut.non_reg_interrupt_pending.valid) {
+    if (!flush())
+      return {ERROR};
+    const auto &p = dut.non_reg_interrupt_pending;
+    NonRegInterruptPending pending = {bool(p.platformIRPMeip),  bool(p.platformIRPMtip),
+                                      bool(p.platformIRPMsip),  bool(p.platformIRPSeip),
+                                      bool(p.platformIRPStip),  bool(p.platformIRPVseip),
+                                      bool(p.platformIRPVstip), bool(p.fromAIAMeip),
+                                      bool(p.fromAIASeip),      bool(p.localCounterOverflowInterruptReq)};
+    proxy->non_reg_interrupt_pending(pending);
+  }
+#endif
+#ifdef CONFIG_DIFFTEST_MHPMEVENTOVERFLOWEVENT
+  if (dut.mhpmevent_overflow.valid) {
+    if (!flush())
+      return {ERROR};
+    proxy->mhpmevent_overflow(dut.mhpmevent_overflow.mhpmeventOverflow);
+  }
+#endif
+#ifdef CONFIG_DIFFTEST_CRITICALERROREVENT
+  if (dut.critical_error.valid) {
+    if (!flush())
+      return {ERROR};
+    return {proxy->raise_critical_error() == dut.critical_error.criticalError ? CRITICAL_MATCH : CRITICAL_MISMATCH};
+  }
+#endif
+#ifdef CONFIG_DIFFTEST_SYNCAIAEVENT
+  if (dut.sync_aia.valid) {
+    if (!flush())
+      return {ERROR};
+    const auto &a = dut.sync_aia;
+    FromAIA aia = {a.mtopei, a.stopei, a.vstopei, a.hgeip};
+    proxy->sync_aia(aia);
+  }
+#endif
+#ifdef CONFIG_DIFFTEST_SYNCCUSTOMMFLUSHPWREVENT
+  if (dut.sync_custom_mflushpwr.valid) {
+    if (!flush())
+      return {ERROR};
+    proxy->sync_custom_mflushpwr(dut.sync_custom_mflushpwr.l2FlushDone);
+  }
+#endif
+  for (int i = 0; i < CONFIG_DIFF_COMMIT_WIDTH; ++i) {
+    if (dut.event.valid && i == dut.event.isLatter) {
+      if (!flush())
+        return {ERROR};
+      const auto &e = dut.event;
+      if (e.interrupt) {
+        if (e.hasNMI)
+          proxy->trigger_nmi(true);
+        else if (e.virtualInterruptIsHvictlInject)
+          proxy->virtual_interrupt_is_hvictl_inject(true);
+        InterruptDelegate delegation = {bool(e.irToHS), bool(e.irToVS)};
+        proxy->intr_delegate(delegation);
+        proxy->raise_intr(e.interrupt | (1ULL << 63));
+      } else if (ref_exception_is_guided(e.exception)) {
+        ExecutionGuide guide = {};
+        guide.force_raise_exception = true;
+        guide.exception_num = e.exception;
+        guide.mtval = dut.regs.csr.mtval;
+        guide.stval = dut.regs.csr.stval;
+#ifdef CONFIG_DIFFTEST_HCSRSTATE
+        guide.mtval2 = dut.regs.hcsr.mtval2;
+        guide.htval = dut.regs.hcsr.htval;
+        guide.vstval = dut.regs.hcsr.vstval;
+#endif
+        proxy->guided_exec(guide);
+      } else {
+        proxy->ref_exec(1);
       }
-      case RefDriveOp::LRSC: {
-        auto sync = c.lrsc;
-        proxy->uarchstatus_sync(reinterpret_cast<uint64_t *>(&sync));
-        break;
-      }
-      case RefDriveOp::PENDING: {
-        auto pending = c.pending;
-        proxy->non_reg_interrupt_pending(pending);
-        break;
-      }
-      case RefDriveOp::OVERFLOW: proxy->mhpmevent_overflow(c.overflow); break;
-      case RefDriveOp::CRITICAL:
-        return proxy->raise_critical_error() == c.critical ? CRITICAL_MATCH : CRITICAL_MISMATCH;
-      case RefDriveOp::AIA: {
-        auto aia = c.aia;
-        proxy->sync_aia(aia);
-        break;
-      }
-      case RefDriveOp::MFLUSH: proxy->sync_custom_mflushpwr(c.mflush); break;
-      case RefDriveOp::ARCH_EVENT: {
-        const auto &e = c.event;
-        if (e.interrupt) {
-          if (e.nmi)
-            proxy->trigger_nmi(true);
-          else if (e.virtual_inject)
-            proxy->virtual_interrupt_is_hvictl_inject(true);
-          auto delegation = e.delegation;
-          proxy->intr_delegate(delegation);
-          proxy->raise_intr(e.interrupt | (1ULL << 63));
-        } else if (e.guided) {
-          auto guide = e.guide;
-          proxy->guided_exec(guide);
-        } else {
-          proxy->ref_exec(1);
-        }
-        break;
-      }
-      case RefDriveOp::END: return OK;
-      case RefDriveOp::EXEC: break;
+      result.arch_event = true;
+      break;
+    }
+    const auto &c = dut.commit[i];
+    if (!c.valid)
+      continue;
+    result.committed_instrs += 1 + c.nFused;
+    if (c.skip) {
+      if (!flush())
+        return {ERROR};
+      proxy->skip_one(c.isRVC, c.rfwen && c.wdest != 0, c.fpwen, c.vecwen, c.wdest, commit_data(i));
+    } else if (!execute(1 + c.nFused)) {
+      return {ERROR};
     }
   }
-  return OK;
+  if (dut.trap.hasTrap && !flush())
+    return {ERROR};
+  return result;
+}
+
+RefDriveExecutor::Result RefDriveExecutor::run(const DiffTestState &state) {
+  return run_state(state, [&state](int i) { return get_commit_data(&state, i); });
+}
+
+RefDriveExecutor::Result RefDriveExecutor::run(const DiffRefDriveState &state, const uint64_t commit_data[]) {
+  return run_state(state, [commit_data](int i) { return commit_data[i]; });
 }
 #endif
