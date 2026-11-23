@@ -71,6 +71,11 @@ When enabled and run directly in an interactive terminal, UART output and host l
 
 `fpga-host` uses the same build flag as the other targets: pass `SPLITVIEW=1` to enable splitview. At runtime, pass `--no-squash` to disable squash or `--squash-size=NUM` to set the maximum fused instruction count (`0`-`255`, default `255`). Use `--no-squash-after-instr=NUM` to begin with squash enabled and disable it after the specified committed-instruction count. `NUM` accepts an uppercase `K`, `M`, or `B` suffix, such as `6.67B`, and is rounded to the nearest instruction.
 
+With the fixed-packet C2H FIFO enabled in the local XDMA driver, set
+`DIFFTEST_XDMA_BATCH_READ=1` to request up to 32 completed packets per read.
+Use a driver with C2H FIFO batch support for this optimization. The default
+is one packet per read.
+
 Key runtime options:
 
 | Option | Effect |
