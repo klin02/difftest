@@ -310,56 +310,6 @@ uint32_t FpgaXdma::device_read(bool is_bypass, uint64_t addr) {
   return value;
 }
 
-static constexpr size_t XDMA_BATCH_PACKETS = 32;
-
-#ifndef FPGA_SIM
-namespace {
-bool xdma_batch_read_enabled() {
-  const char *enabled = std::getenv("DIFFTEST_XDMA_BATCH_READ");
-  return enabled && std::strcmp(enabled, "1") == 0;
-}
-
-ssize_t read_xdma_batch(int fd, void *buffer, size_t requested) {
-  const ssize_t bytes = read(fd, buffer, requested);
-  if (bytes > 0 && (static_cast<size_t>(bytes) > requested || bytes % sizeof(FpgaPackgeHead) != 0)) {
-    fprintf(stderr, "XDMA batch received %zd bytes for a %zu-byte request\n", bytes, requested);
-    errno = EPROTO;
-    return -1;
-  }
-  return bytes;
-}
-
-#if !defined(USE_THREAD_MEMPOOL) || CONFIG_DMA_CHANNELS > 1
-class XdmaBatchReader {
-public:
-  ssize_t read_packet(int fd, FpgaPackgeHead *&packet) {
-    if (next == count) {
-      const ssize_t bytes = read_xdma_batch(fd, packets, request_bytes);
-      if (bytes <= 0)
-        return bytes;
-      next = 0;
-      count = bytes / sizeof(FpgaPackgeHead);
-      request_bytes = sizeof(packets);
-    }
-    packet = &packets[next++];
-    return sizeof(*packet);
-  }
-
-private:
-  alignas(4096) FpgaPackgeHead packets[XDMA_BATCH_PACKETS];
-  // The first read sets the driver's fixed C2H FIFO packet length.
-  size_t request_bytes = sizeof(FpgaPackgeHead);
-  size_t next = 0;
-  size_t count = 0;
-};
-
-std::unique_ptr<XdmaBatchReader> make_xdma_batch_reader() {
-  return xdma_batch_read_enabled() ? std::make_unique<XdmaBatchReader>() : nullptr;
-}
-#endif
-} // namespace
-#endif // FPGA_SIM
-
 #ifdef USE_THREAD_MEMPOOL
 static void xdma_wakeup_handler(int) {}
 void FpgaXdma::start_transmit_thread() {
@@ -411,12 +361,10 @@ void FpgaXdma::read_xdma_thread(int channel) {
   constexpr size_t packet_bytes = sizeof(FpgaPackgeHead);
   size_t mem_get_idx = 0;
 #if !defined(FPGA_SIM) && CONFIG_DMA_CHANNELS <= 1
-  const bool batch_into_pool = !relay && xdma_batch_read_enabled();
+  const char *batch_option = relay ? nullptr : std::getenv("DIFFTEST_XDMA_BATCH_READ");
+  const bool batch_read = batch_option && std::strcmp(batch_option, "1") == 0;
 #else
-  constexpr bool batch_into_pool = false;
-#endif
-#if !defined(FPGA_SIM) && CONFIG_DMA_CHANNELS > 1
-  auto batch_reader = relay ? nullptr : make_xdma_batch_reader();
+  constexpr bool batch_read = false;
 #endif
   size_t max_packets = 1; // The first read sets the driver's FIFO packet length.
 #ifdef CONFIG_DIFFTEST_FORK_REF
@@ -424,7 +372,7 @@ void FpgaXdma::read_xdma_thread(int channel) {
 #endif
   while (running && signal_num == 0) {
     size_t contiguous = 1;
-    char *mem = packet_pool->get_free_chunk(&mem_get_idx, batch_into_pool ? &contiguous : nullptr);
+    char *mem = packet_pool->get_free_chunk(&mem_get_idx, batch_read ? &contiguous : nullptr);
     if (!mem) {
       if (packet_pool->aborted())
         break;
@@ -438,26 +386,11 @@ void FpgaXdma::read_xdma_thread(int channel) {
 #ifdef FPGA_SIM
       ssize_t size = static_cast<ssize_t>(xdma_sim_read(channel, mem + received, requested - received));
 #else
-      ssize_t size;
-      if (relay) {
-        size = relay->read(channel, mem + received, requested - received);
-      } else if (batch_into_pool) {
-        size = read_xdma_batch(xdma_c2h_fd[channel], mem, requested);
-        if (!running || signal_num != 0 || packet_pool->aborted())
-          break;
-#if CONFIG_DMA_CHANNELS > 1
-      } else if (batch_reader) {
-        FpgaPackgeHead *packet;
-        size = batch_reader->read_packet(xdma_c2h_fd[channel], packet);
-        if (!running || signal_num != 0 || packet_pool->aborted())
-          break;
-        if (size > 0)
-          memcpy(mem, packet, sizeof(*packet));
+      ssize_t size = relay ? relay->read(channel, mem + received, requested - received)
+                           : read(xdma_c2h_fd[channel], mem + received, requested - received);
 #endif
-      } else {
-        size = read(xdma_c2h_fd[channel], mem + received, requested - received);
-      }
-#endif
+      if (batch_read && (!running || signal_num != 0 || packet_pool->aborted()))
+        break;
       if (size < 0 && errno == EINTR)
         continue;
 #ifdef CONFIG_DIFFTEST_FORK_REF
@@ -473,20 +406,20 @@ void FpgaXdma::read_xdma_thread(int channel) {
         }
       }
 #endif
-      if (size <= 0) {
+      if (size <= 0 || (batch_read && (static_cast<size_t>(size) > requested || size % packet_bytes != 0))) {
         fprintf(stderr, "XDMA receive failed or ended inside a packet\n");
         packet_pool->fail();
         running = false;
         break;
       }
       received += size;
-      if (batch_into_pool)
+      if (batch_read)
         break; // A short return of complete packets is normal for the FIFO.
     }
-    if (batch_into_pool ? received == 0 : received != packet_bytes)
+    if (batch_read ? received == 0 : received != packet_bytes)
       break;
     for (size_t i = 0; i < received / packet_bytes; ++i) {
-      if (batch_into_pool && (!running || signal_num != 0 || packet_pool->aborted()))
+      if (batch_read && (!running || signal_num != 0 || packet_pool->aborted()))
         break;
       if (!packet_pool->write_free_chunk(mem[i * packet_bytes], mem_get_idx + i)) {
         fprintf(stderr, "XDMA pool publication failed\n");
@@ -495,8 +428,8 @@ void FpgaXdma::read_xdma_thread(int channel) {
         break;
       }
     }
-    if (batch_into_pool)
-      max_packets = XDMA_BATCH_PACKETS;
+    if (batch_read)
+      max_packets = 32;
   }
   receive_finished[channel].store(true, std::memory_order_release);
 }
@@ -545,35 +478,30 @@ void FpgaXdma::process_packets() {
 
 #else // !USE_THREAD_MEMPOOL
 
+void *posix_memalignd_malloc(size_t size) {
+  void *ptr = nullptr;
+  int ret = posix_memalign(&ptr, 4096, size);
+  if (ret != 0) {
+    perror("posix_memalign failed");
+    return nullptr;
+  }
+  return ptr;
+}
 void FpgaXdma::read_and_process() {
   printf("start channel 0\n");
-#ifndef FPGA_SIM
-  auto batch_reader = relay ? nullptr : make_xdma_batch_reader();
-  const bool batching = batch_reader != nullptr;
-#else
-  constexpr bool batching = false;
-#endif
-  alignas(4096) FpgaPackgeHead single_packet{};
+  FpgaPackgeHead *packge = (FpgaPackgeHead *)posix_memalignd_malloc(sizeof(FpgaPackgeHead));
+  memset(packge, 0, sizeof(FpgaPackgeHead));
   while (running && signal_num == 0) {
-    FpgaPackgeHead *packet = &single_packet;
 #ifdef FPGA_SIM
-    ssize_t size = static_cast<ssize_t>(xdma_sim_read(0, (char *)packet, sizeof(*packet)));
+    ssize_t size = static_cast<ssize_t>(xdma_sim_read(0, (char *)packge, sizeof(FpgaPackgeHead)));
 #else
-    ssize_t size;
-    if (batch_reader) {
-      size = batch_reader->read_packet(xdma_c2h_fd[0], packet);
-      if (!running || signal_num != 0)
-        break;
-      if (size < 0 && (errno == EINTR || errno == ETIMEDOUT))
-        continue;
-    } else {
-      size = relay ? relay->read(0, packet, sizeof(*packet)) : read(xdma_c2h_fd[0], packet, sizeof(*packet));
-    }
+    ssize_t size =
+        relay ? relay->read(0, packge, sizeof(FpgaPackgeHead)) : read(xdma_c2h_fd[0], packge, sizeof(FpgaPackgeHead));
 #endif // FPGA_SIM
     if (relay && size > 0 && static_cast<size_t>(size) < sizeof(FpgaPackgeHead)) {
       size_t received = size;
       while (running && signal_num == 0 && received < sizeof(FpgaPackgeHead)) {
-        ssize_t n = relay->read(0, reinterpret_cast<char *>(packet) + received, sizeof(*packet) - received);
+        ssize_t n = relay->read(0, reinterpret_cast<char *>(packge) + received, sizeof(FpgaPackgeHead) - received);
         if (n < 0 && errno == EINTR)
           continue;
         if (n <= 0)
@@ -587,8 +515,8 @@ void FpgaXdma::read_and_process() {
       }
     }
     if (size <= 0) {
-      if (relay || batching) {
-        fprintf(stderr, "XDMA %s receive failed or ended inside a packet\n", relay ? "relay" : "batch");
+      if (relay) {
+        fprintf(stderr, "XDMA relay receive failed or ended inside a packet\n");
         running = false;
         break;
       }
@@ -598,9 +526,10 @@ void FpgaXdma::read_and_process() {
       continue;
     }
     for (size_t i = 0; i < DMA_PACKGE_NUM; i++) {
-      if (!dma_packet_is_padding(packet->diff_packge[i]))
-        v_difftest_Batch(packet->diff_packge[i].diff_packge);
+      if (!dma_packet_is_padding(packge->diff_packge[i]))
+        v_difftest_Batch(packge->diff_packge[i].diff_packge);
     }
   }
+  free(packge);
 }
 #endif // USE_THREAD_MEMPOOL

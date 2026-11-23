@@ -71,13 +71,10 @@ When enabled and run directly in an interactive terminal, UART output and host l
 
 `fpga-host` uses the same build flag as the other targets: pass `SPLITVIEW=1` to enable splitview. At runtime, pass `--no-squash` to disable squash or `--squash-size=NUM` to set the maximum fused instruction count (`0`-`255`, default `255`). Use `--no-squash-after-instr=NUM` to begin with squash enabled and disable it after the specified committed-instruction count. `NUM` accepts an uppercase `K`, `M`, or `B` suffix, such as `6.67B`, and is rounded to the nearest instruction.
 
-Local XDMA batch reads require a driver with C2H FIFO batch support, built
-with `POLLING=1` and loaded with `c2h_fifo_slots` greater than zero. Set
-`DIFFTEST_XDMA_BATCH_READ=1` to enable batching. The first read requests one
-packet to set the FIFO packet size. Subsequent reads request 32 packets and
-consume the complete packets returned. The default is single-packet reads.
-With a threaded host and one DMA channel, reads write directly into the packet
-pool and request at most the number of contiguous free slots.
+Set `DIFFTEST_XDMA_BATCH_READ=1` to batch local XDMA reads directly into the
+packet pool with `USE_THREAD_MEMPOOL=1` and one DMA channel. The driver needs
+C2H FIFO batch support, `POLLING=1` and a nonzero `c2h_fifo_slots`. The first
+read sets the packet size, and later reads request up to 32 packets.
 
 Key runtime options:
 
