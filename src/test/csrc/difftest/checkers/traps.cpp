@@ -54,6 +54,15 @@ void ArchEventChecker::clear_valid(DifftestArchEvent &probe) {
 }
 
 int ArchEventChecker::check(const DifftestArchEvent &probe) {
+#ifdef CONFIG_DIFFTEST_CMOINVAL_BOUNDARY
+  // A CBO.INVAL that completes with an exception never reaches the normal
+  // commit path, so its line would stay pending. Hand it back to the
+  // refill-time recovery instead of applying it to a later instruction.
+  if (state->cmo_inval_pending_line) {
+    state->cmo_inval_event_set.insert(*state->cmo_inval_pending_line);
+    state->cmo_inval_pending_line.reset();
+  }
+#endif
   // interrupt has a higher priority than exception
   // TODO: we should ensure they don't happen at the same time
   if (probe.interrupt) {

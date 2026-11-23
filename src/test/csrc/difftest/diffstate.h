@@ -23,9 +23,20 @@
 #include "mma/backend/mma_backend.h"
 #endif
 #include <cstdint>
+#include <optional>
 #include <deque>
 #include <queue>
 #include <unordered_set>
+
+// CBO.INVAL boundary synchronization. In simulator backends the host memory
+// mirrors the DUT's memory, so an invalidated line can be restored in the REF
+// as soon as the instruction retires there. That is earlier than the refill
+// that the legacy fallback waits for, which can arrive after younger REF
+// stores have already been applied to the same line.
+#if defined(CONFIG_DIFFTEST_CMOINVALEVENT) && NUM_CORES == 1 && !defined(CONFIG_DIFFTEST_SQUASH) && \
+    !defined(CONFIG_DIFFTEST_REPLAY) && !defined(FPGA_HOST)
+#define CONFIG_DIFFTEST_CMOINVAL_BOUNDARY
+#endif
 
 class CommitTrace {
 public:
@@ -175,6 +186,12 @@ public:
 
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
   std::unordered_set<uint64_t> cmo_inval_event_set;
+#ifdef CONFIG_DIFFTEST_CMOINVAL_BOUNDARY
+  // Line whose CBO.INVAL has completed in the DUT but whose instruction has not
+  // retired in the REF yet. It is restored from the DUT memory model at that
+  // instruction boundary so that younger REF stores are not overwritten.
+  std::optional<uint64_t> cmo_inval_pending_line;
+#endif
 #endif
 
 #ifdef CONFIG_DIFFTEST_SQUASH

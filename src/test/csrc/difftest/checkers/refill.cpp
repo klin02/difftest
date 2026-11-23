@@ -123,6 +123,24 @@ void CmoInvalRecorder::clear_valid(DifftestCMOInvalEvent &probe) {
 }
 
 int CmoInvalRecorder::check(const DifftestCMOInvalEvent &probe) {
+#ifdef CONFIG_DIFFTEST_CMOINVAL_BOUNDARY
+  // CBO.INVAL makes the line's dirty data unobservable: once the operation
+  // completes, the line holds whatever the memory hierarchy holds. The DUT
+  // memory model is the host-side view of that data, so remember the line and
+  // apply it when the instruction retires in the REF. Applying it at the
+  // refill, as the fallback below does, is too late: by then the REF may have
+  // executed younger stores to the same line.
+  const uint64_t line = probe.addr & ~UINT64_C(63);
+  if (simMemory && in_pmem(line) && in_pmem(line + 63)) {
+    if (state->cmo_inval_pending_line && *state->cmo_inval_pending_line != line) {
+      // The previous completion was never consumed at its instruction
+      // boundary; keep the refill-time recovery for it.
+      state->cmo_inval_event_set.insert(*state->cmo_inval_pending_line);
+    }
+    state->cmo_inval_pending_line = line;
+    return STATE_OK;
+  }
+#endif
   state->cmo_inval_event_set.insert(probe.addr);
   return STATE_OK;
 }

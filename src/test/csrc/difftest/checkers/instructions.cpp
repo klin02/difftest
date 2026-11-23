@@ -17,6 +17,7 @@
 #include "checkers.h"
 #include "dut.h"
 #include "flash.h"
+#include "goldenmem.h"
 #include "ram.h"
 
 bool FirstInstrCommitChecker::get_valid(const DifftestInstrCommit &probe) {
@@ -158,6 +159,14 @@ int InstrCommitChecker::check(const DifftestInstrCommit &probe) {
     return STATE_OK;
   }
 
+#ifdef CONFIG_DIFFTEST_CMOINVAL_BOUNDARY
+  // cbo.inval rs1, x0
+  constexpr uint64_t cbo_inval_mask = 0xfff07fff;
+  constexpr uint64_t cbo_inval_opcode = 0x0000200f;
+  const bool restore_cmo_line =
+      state->cmo_inval_pending_line && (commit_instr & cbo_inval_mask) == cbo_inval_opcode;
+#endif
+
   // Default: single step exec
   // when there's a fused instruction, let proxy execute more instructions.
   for (int j = 0; j < probe.nFused + 1; j++) {
@@ -171,6 +180,25 @@ int InstrCommitChecker::check(const DifftestInstrCommit &probe) {
     }
 #endif // CONFIG_DIFFTEST_SQUASH
   }
+
+#ifdef CONFIG_DIFFTEST_CMOINVAL_BOUNDARY
+  if (restore_cmo_line && simMemory) {
+    // The REF has just executed this CBO.INVAL. Its memory must now hold what
+    // the memory hierarchy holds for the line, because the operation dropped
+    // the dirty data cached by the DUT. Restoring the line here, at the
+    // instruction boundary, keeps the bytes written by younger REF stores.
+    const uint64_t line = *state->cmo_inval_pending_line;
+    state->cmo_inval_pending_line.reset();
+    const uint64_t offset = (line - PMEM_BASE) / sizeof(uint64_t);
+    uint64_t data[8];
+    for (size_t i = 0; i < sizeof(data) / sizeof(data[0]); i++) {
+      data[i] = simMemory->at(offset + i);
+    }
+    update_goldenmem(line, data, UINT64_MAX, sizeof(data));
+    proxy->ref_memcpy(line, data, sizeof(data), DUT_TO_REF);
+    Info("[CMO] Restore 0x%lx from the DUT memory at the cbo.inval boundary\n", line);
+  }
+#endif
 
 #ifndef CONFIG_DIFFTEST_SQUASH
   for (auto checker: op_checkers) {
