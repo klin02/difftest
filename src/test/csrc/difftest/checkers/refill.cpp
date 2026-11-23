@@ -18,6 +18,43 @@
 #include "goldenmem.h"
 
 #ifdef CONFIG_DIFFTEST_REFILLEVENT
+#ifdef DIFFTEST_CMO_REFILL_WRITE_TRACKING
+static void sync_cmo_refill(RefProxy *proxy, uint64_t paddr, const DifftestRefillEvent &probe,
+                            uint64_t golden_writes, uint64_t ref_writes) {
+  uint64_t valid_bytes = 0;
+  bool mismatch = false;
+  for (unsigned word = 0; word < 8; ++word) {
+    if (probe.mask & (1U << word)) {
+      uint64_t golden;
+      read_goldenmem(paddr + word * 8, &golden, 8);
+      mismatch |= probe.data[word] != golden;
+      valid_bytes |= UINT64_C(0xff) << (word * 8);
+    }
+  }
+  if (!mismatch) {
+    return;
+  }
+
+  Info("INFO: Sync GoldenMem using refill Data from DUT (Because of CBO.INVAL): addr: %lx\n", paddr);
+  update_goldenmem(paddr, (void *)probe.data, valid_bytes & ~golden_writes, 64);
+  const uint64_t ref_mask = valid_bytes & ~ref_writes;
+  if (ref_mask == UINT64_MAX) {
+    proxy->ref_memcpy(paddr, (void *)probe.data, 64, DUT_TO_REF);
+  } else if (ref_mask) {
+    // Use one REF write so a fragmented byte mask needs only one TLB flush.
+    uint8_t merged[64];
+    proxy->ref_memcpy(paddr, merged, sizeof(merged), REF_TO_DUT);
+    const auto *refill = reinterpret_cast<const uint8_t *>(probe.data);
+    for (unsigned byte = 0; byte < sizeof(merged); ++byte) {
+      if ((ref_mask >> byte) & 1) {
+        merged[byte] = refill[byte];
+      }
+    }
+    proxy->ref_memcpy(paddr, merged, sizeof(merged), DUT_TO_REF);
+  }
+}
+#endif
+
 bool RefillChecker::get_valid(const DifftestRefillEvent &probe) {
   return probe.valid;
 }
@@ -37,6 +74,16 @@ int RefillChecker::check(const DifftestRefillEvent &probe) {
   char flag_buf[512];
   uint64_t realpaddr = probe.addr;
   uint64_t paddr = probe.addr - probe.addr % 64;
+#ifdef DIFFTEST_CMO_REFILL_WRITE_TRACKING
+  if (probe.mask != 0) {
+    if (const auto golden_writes = goldenmem_cmo_inval_end(paddr)) {
+      const uint64_t ref_writes = proxy->cmo_inval_end(paddr);
+      sync_cmo_refill(proxy, paddr, probe, *golden_writes, ref_writes);
+      last_valid_addr = 0;
+      return STATE_OK;
+    }
+  }
+#endif
   if (paddr != last_valid_addr) {
     last_valid_addr = paddr;
     if (!in_pmem(paddr)) {
@@ -123,6 +170,13 @@ void CmoInvalRecorder::clear_valid(DifftestCMOInvalEvent &probe) {
 }
 
 int CmoInvalRecorder::check(const DifftestCMOInvalEvent &probe) {
+#ifdef DIFFTEST_CMO_REFILL_WRITE_TRACKING
+  const uint64_t line = probe.addr - probe.addr % 64;
+  if (in_pmem(line) && in_pmem(line + 63) && proxy->cmo_inval_begin(line)) {
+    goldenmem_cmo_inval_begin(line);
+    return STATE_OK;
+  }
+#endif
   state->cmo_inval_event_set.insert(probe.addr);
   return STATE_OK;
 }

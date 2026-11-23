@@ -21,6 +21,46 @@
 #include <goldenmem.h>
 #include <stdlib.h>
 
+#ifdef DIFFTEST_CMO_REFILL_WRITE_TRACKING
+#include <algorithm>
+#include <unordered_map>
+
+static std::unordered_map<uint64_t, uint64_t> cmo_pending_lines;
+
+void goldenmem_cmo_inval_begin(uint64_t line) {
+  cmo_pending_lines[line] = 0;
+}
+
+std::optional<uint64_t> goldenmem_cmo_inval_end(uint64_t line) {
+  if (cmo_pending_lines.empty()) {
+    return std::nullopt;
+  }
+  const auto entry = cmo_pending_lines.find(line);
+  if (entry == cmo_pending_lines.end()) {
+    return std::nullopt;
+  }
+  const uint64_t mask = entry->second;
+  cmo_pending_lines.erase(entry);
+  return mask;
+}
+
+static void cmo_record_goldenmem_write(uint64_t addr, uint64_t mask, int len) {
+  while (len > 0) {
+    const unsigned offset = addr % 64;
+    const unsigned count = std::min<unsigned>(len, 64 - offset);
+    const auto entry = cmo_pending_lines.find(addr - offset);
+    if (entry != cmo_pending_lines.end()) {
+      entry->second |= (mask & (UINT64_MAX >> (64 - count))) << offset;
+    }
+    addr += count;
+    len -= count;
+    if (len > 0) {
+      mask >>= count;
+    }
+  }
+}
+#endif
+
 uint8_t *pmem;
 uint8_t *pmem_flag; // 1: store update but load check skip; 0: update and check. others: assert
 static uint64_t pmem_size;
@@ -30,6 +70,9 @@ void *guest_to_host(uint64_t addr) {
 }
 
 void init_goldenmem() {
+#ifdef DIFFTEST_CMO_REFILL_WRITE_TRACKING
+  cmo_pending_lines.clear();
+#endif
   pmem_size = simMemory->get_size();
   pmem = (uint8_t *)mmap(NULL, pmem_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
   pmem_flag = (uint8_t *)mmap(NULL, pmem_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
@@ -49,6 +92,11 @@ void goldenmem_finish() {
 }
 
 void update_goldenmem(uint64_t addr, void *data, uint64_t mask, int len, uint8_t flag) {
+#ifdef DIFFTEST_CMO_REFILL_WRITE_TRACKING
+  if (!cmo_pending_lines.empty()) {
+    cmo_record_goldenmem_write(addr, mask, len);
+  }
+#endif
   uint8_t *dataArray = (uint8_t *)data;
   for (int i = 0; i < len; i++) {
     if (((mask >> i) & 1) != 0) {

@@ -184,6 +184,8 @@ public:
   f(ref_skip_one, difftest_skip_one, void, bool, bool, uint32_t, uint64_t)                                  \
   f(ref_guided_exec, difftest_guided_exec, void, void*)                                                     \
   f(ref_memcpy_init, difftest_memcpy_init, void, uint64_t, void*, size_t, bool)                             \
+  f(ref_cmo_inval_begin, difftest_cmo_inval_begin, void, uint64_t)                                         \
+  f(ref_cmo_inval_end, difftest_cmo_inval_end, uint64_t, uint64_t)                                         \
   f(raise_nmi_intr, difftest_raise_nmi_intr, void, bool)                                                    \
   f(ref_virtual_interrupt_is_hvictl_inject, difftest_virtual_interrupt_is_hvictl_inject, void, bool)        \
   f(ref_interrupt_delegate, difftest_interrupt_delegate, void, void*)                                       \
@@ -449,6 +451,18 @@ public:
     } else {
       report_unsupported_ref("the 'PC' value of store commit event");
     }
+  }
+
+  bool cmo_inval_begin(uint64_t line) {
+    if (!ref_cmo_inval_begin || !ref_cmo_inval_end) {
+      return false;
+    }
+    ref_cmo_inval_begin(line);
+    return true;
+  }
+
+  uint64_t cmo_inval_end(uint64_t line) {
+    return ref_cmo_inval_end(line);
   }
 
   inline int store_commit_hash(uint64_t count, uint64_t hash_lo, uint64_t hash_hi, uint64_t instr_begin,

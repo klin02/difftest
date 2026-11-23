@@ -34,6 +34,16 @@ extern uint8_t *pmem_flag;
 void init_goldenmem();
 void goldenmem_finish();
 
+#if NUM_CORES == 1 && defined(DEBUG_REFILL) && defined(CONFIG_DIFFTEST_REFILLEVENT) && \
+    defined(CONFIG_DIFFTEST_CMOINVALEVENT) && !defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_DIFFTEST_REPLAY) && \
+    !defined(CONFIG_DIFFTEST_FAST_REF) && !defined(CONFIG_DIFFTEST_FORK_REF)
+#define DIFFTEST_CMO_REFILL_WRITE_TRACKING
+#include <optional>
+
+void goldenmem_cmo_inval_begin(uint64_t line);
+std::optional<uint64_t> goldenmem_cmo_inval_end(uint64_t line);
+#endif
+
 extern "C" void update_goldenmem(uint64_t addr, void *data, uint64_t mask, int len, uint8_t flag = 0);
 extern "C" void read_goldenmem(uint64_t addr, void *data, uint64_t len, void *flag = NULL);
 
