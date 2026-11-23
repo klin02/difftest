@@ -76,6 +76,8 @@ with `POLLING=1` and loaded with `c2h_fifo_slots` greater than zero. Set
 `DIFFTEST_XDMA_BATCH_READ=1` to enable batching. The first read requests one
 packet to set the FIFO packet size. Subsequent reads request 32 packets and
 consume the complete packets returned. The default is single-packet reads.
+With a threaded host and one DMA channel, reads write directly into the packet
+pool and request at most the number of contiguous free slots.
 
 Key runtime options:
 
