@@ -527,7 +527,7 @@ void FpgaXdma::read_and_process() {
       size = batch_reader->read_packet(xdma_c2h_fd[0], packet);
       if (!running || signal_num != 0)
         break;
-      if (size < 0 && errno == EINTR)
+      if (size < 0 && (errno == EINTR || errno == ETIMEDOUT))
         continue;
     } else {
       size = relay ? relay->read(0, packet, sizeof(*packet)) : read(xdma_c2h_fd[0], packet, sizeof(*packet));
