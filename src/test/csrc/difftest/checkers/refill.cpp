@@ -46,11 +46,16 @@ int RefillChecker::check(const DifftestRefillEvent &probe) {
     // REF has stored since then: the refill may have been fetched before those
     // stores were performed. Only refill data is written, so nothing is copied
     // from the REF back into goldenmem.
-    const uint64_t ref_written = cmo->second.written;
     last_valid_addr = paddr;
     if (!in_pmem(paddr)) {
       state->cmo_inval_lines.erase(cmo);
       return STATE_OK;
+    }
+    const bool ref_watch = proxy->has_cmo_write_watch();
+    uint64_t ref_written = cmo->second.written;
+    if (ref_watch && !proxy->ref_cmo_inval_written(paddr, &ref_written)) {
+      Info("Missing REF CBO.INVAL watch for line 0x%lx\n", paddr);
+      return STATE_DIFF;
     }
     uint64_t refill_bytes = 0;
     for (int i = 0; i < 8; i++) {
@@ -58,11 +63,10 @@ int RefillChecker::check(const DifftestRefillEvent &probe) {
         refill_bytes |= UINT64_C(0xff) << (i * 8);
       }
     }
-    const uint64_t sync = refill_bytes & ~cmo->second.written & ~cmo->second.synced;
-    // Without per-store events (e.g. a store-hash build) the mask stays zero.
-    // In that case keep the original behavior: only adopt the refill data when
-    // it disagrees with goldenmem, instead of rewriting the whole line.
-    bool needs_sync = (ref_written != 0);
+    const uint64_t sync = refill_bytes & ~ref_written & ~cmo->second.seen;
+    cmo->second.seen |= refill_bytes;
+    // GoldenMem can agree with the refill while the REF still holds pre-invalidation bytes.
+    bool needs_sync = ref_watch || ref_written != 0;
     for (int i = 0; !needs_sync && i < 64; i++) {
       if (((sync >> i) & 1) == 0) {
         continue;
@@ -72,7 +76,6 @@ int RefillChecker::check(const DifftestRefillEvent &probe) {
       needs_sync = (uint8_t)gold != ((const uint8_t *)probe.data)[i];
     }
     if (sync != 0 && needs_sync) {
-      cmo->second.synced |= sync;
       update_goldenmem(paddr, (void *)probe.data, sync, 64);
       for (int i = 0; i < 64;) {
         if (((sync >> i) & 1) == 0) {
@@ -90,7 +93,10 @@ int RefillChecker::check(const DifftestRefillEvent &probe) {
     Info("INFO: Sync GoldenMem using refill Data from DUT (Because of CBO.INVAL):\n");
     Info("      cacheid=%d, addr: %lx, kept=%016lx\n", index, paddr, ref_written);
     // A segmented refill keeps the record until the whole line has been seen.
-    if (refill_bytes == UINT64_MAX) {
+    if (cmo->second.seen == UINT64_MAX) {
+      if (ref_watch) {
+        proxy->ref_cmo_inval_release(paddr);
+      }
       state->cmo_inval_lines.erase(cmo);
     }
     return STATE_OK;
@@ -159,10 +165,12 @@ void CmoInvalRecorder::clear_valid(DifftestCMOInvalEvent &probe) {
 }
 
 int CmoInvalRecorder::check(const DifftestCMOInvalEvent &probe) {
-  // CBO.INVAL leaves the line with the memory content, which the REF only sees
-  // when the line is refilled. Start tracking the bytes the REF stores to the
-  // line in the meantime, so the refill does not revert them.
-  state->cmo_inval_lines[probe.addr & ~UINT64_C(63)] = {};
+  const uint64_t line = probe.addr & ~UINT64_C(63);
+  if (proxy->has_cmo_write_watch() && in_pmem(line)) {
+    // XiangShan drains older instructions before reporting CMO completion.
+    proxy->ref_cmo_inval_begin(line);
+  }
+  state->cmo_inval_lines[line] = {};
   return STATE_OK;
 }
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT

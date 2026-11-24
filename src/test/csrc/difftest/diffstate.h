@@ -175,8 +175,8 @@ public:
 
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
   struct CmoInvalLine {
-    uint64_t written = 0; // bytes the REF has stored since the invalidation
-    uint64_t synced = 0;  // bytes already taken from the refill data
+    uint64_t written = 0; // StoreEvent fallback for older REFs
+    uint64_t seen = 0;    // bytes covered by refill events
   };
   // Lines whose CBO.INVAL has not been reconciled by a refill yet.
   std::unordered_map<uint64_t, CmoInvalLine> cmo_inval_lines;
