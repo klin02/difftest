@@ -70,6 +70,10 @@ FpgaXdma::FpgaXdma(bool fork_readers, size_t pool_slots, bool batch_read) {
 
 #ifndef FPGA_SIM
   if (XdmaRelayClient::enabled()) {
+    if (batch_read) {
+      fprintf(stderr, "[fpga-host] --xdma-batch-read requires local XDMA\n");
+      exit(EXIT_FAILURE);
+    }
     relay = std::make_unique<XdmaRelayClient>(sizeof(FpgaPackgeHead), CONFIG_DMA_CHANNELS);
     return;
   }

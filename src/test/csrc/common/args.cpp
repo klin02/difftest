@@ -562,6 +562,12 @@ CommonArgs parse_args(int argc, const char *argv[]) {
 #endif
 
 #ifdef FPGA_HOST
+#if !defined(DIFFTEST_HOSTIF_XDMA) || defined(FPGA_SIM) || !defined(USE_THREAD_MEMPOOL) || CONFIG_DMA_CHANNELS != 1
+  if (args.xdma_batch_read) {
+    fprintf(stderr, "[fpga-host] --xdma-batch-read requires local XDMA, DMA_CHANNELS=1 and USE_THREAD_MEMPOOL=1\n");
+    exit(EXIT_FAILURE);
+  }
+#endif
   if (args.ila_size && (!args.enable_diff || !args.enable_link || args.refdrive_trace_name)) {
     fprintf(stderr, "[ERROR] --ila-size requires REF checking and cannot use RefDriveTrace\n");
     exit(EINVAL);

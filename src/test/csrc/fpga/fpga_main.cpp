@@ -98,18 +98,6 @@ int main(int argc, const char *argv[]) {
   fpga_ila_upload_cmd = std::getenv("FPGA_ILA_UPLOAD_CMD");
   args = parse_args(argc, argv);
 
-#if defined(DIFFTEST_HOSTIF_XDMA) && !defined(FPGA_SIM) && defined(USE_THREAD_MEMPOOL) && CONFIG_DMA_CHANNELS == 1
-  if (args.xdma_batch_read && XdmaRelayClient::enabled()) {
-    fprintf(stderr, "[fpga-host] --xdma-batch-read requires local XDMA\n");
-    return EXIT_FAILURE;
-  }
-#else
-  if (args.xdma_batch_read) {
-    fprintf(stderr, "[fpga-host] --xdma-batch-read requires local XDMA, DMA_CHANNELS=1 and USE_THREAD_MEMPOOL=1\n");
-    return EXIT_FAILURE;
-  }
-#endif
-
   common_init(argv[0]);
 
   fpga_init();
