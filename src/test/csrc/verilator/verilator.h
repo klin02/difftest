@@ -30,22 +30,14 @@ private:
   inline void set_clock(unsigned clock) {
     dut->clock = clock;
   }
-#if defined(CONFIG_HAS_ACCELERATOR_CLOCK) || defined(CONFIG_HAS_LLC_ASYNC_CLOCK)
+#ifdef CONFIG_HAS_ACCELERATOR_CLOCK
   inline void set_accelerator_clock(unsigned clock) {
-#ifdef CONFIG_HAS_LLC_ASYNC_CLOCK
-    dut->llcAsyncClock = clock;
-#else
     dut->acceleratorClock = clock;
-#endif
   }
   inline unsigned get_accelerator_clock() const {
-#ifdef CONFIG_HAS_LLC_ASYNC_CLOCK
-    return dut->llcAsyncClock;
-#else
     return dut->acceleratorClock;
-#endif
   }
-#endif
+#endif // CONFIG_HAS_ACCELERATOR_CLOCK
   inline void set_reset(unsigned reset) {
     dut->reset = reset;
   }
@@ -56,12 +48,12 @@ private:
   void waveform_tick();
 
   void half_cycle(unsigned core_clock_level);
-#if defined(CONFIG_HAS_ACCELERATOR_CLOCK) || defined(CONFIG_HAS_LLC_ASYNC_CLOCK)
+#ifdef CONFIG_HAS_ACCELERATOR_CLOCK
   uint32_t core_clock_half_period = 1;
   uint32_t accelerator_clock_half_period = 1;
   uint64_t accelerator_clock_phase = 0;
   unsigned accelerator_clock_level = 0;
-#endif
+#endif // CONFIG_HAS_ACCELERATOR_CLOCK
 
 #if VM_TRACE == 1
   TraceBindFunc trace_bind = [this](VerilatedTraceBaseC *tfp, int levels) { this->dut->trace(tfp, levels); };
@@ -117,10 +109,10 @@ public:
                     const std::function<bool()> &should_dump_full) override;
   void reset_cycle(bool dump) override;
   void configure_clocks(uint32_t core_half_period, uint32_t accelerator_half_period) override;
-#if defined(CONFIG_HAS_ACCELERATOR_CLOCK) || defined(CONFIG_HAS_LLC_ASYNC_CLOCK)
+#ifdef CONFIG_HAS_ACCELERATOR_CLOCK
   void save_extra_state(const std::function<void(void *, size_t)> &write) override;
   void load_extra_state(const std::function<void(void *, size_t)> &read) override;
-#endif
+#endif // CONFIG_HAS_ACCELERATOR_CLOCK
 
 #if VM_TRACE == 1
   void waveform_init(uint64_t cycles) override;
