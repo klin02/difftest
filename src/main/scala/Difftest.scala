@@ -507,9 +507,8 @@ class DiffAtomicEvent extends AtomicEvent with DifftestBundle {
 
 class DiffCMOInvalEvent extends CMOInvalEvent with DifftestBundle {
   override val desiredCppName: String = "cmo_inval"
-  override val squashGroup: Seq[String] = Seq("GOLDENMEM")
-  // TODO: currently we assume it can be dropped
-  override def supportsSquashBase: Bool = true.B
+  // Flush pending REF commits and memory events before forwarding CBO.INVAL.
+  override val squashGroup: Seq[String] = Seq("REF", "GOLDENMEM")
 }
 
 class DiffL1TLBEvent extends L1TLBEvent with DifftestBundle with DifftestWithIndex {
