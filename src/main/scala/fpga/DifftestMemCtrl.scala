@@ -199,15 +199,11 @@ class H2CAXIs2Mem(
   when(!io.enable) {
     state := sIdle
     addr := baseAddr.U(addrWidth.W)
-    beatsLeft := (io.sizeMB << (20 - log2Ceil(beatBytes))).asUInt
   }.otherwise {
     switch(state) {
       is(sIdle) {
-        when(beatsLeft === 0.U) {
-          state := sDone
-        }.elsewhen(fifo.io.deq.valid) {
-          state := sReadPayload
-        }
+        beatsLeft := (io.sizeMB << (20 - log2Ceil(beatBytes))).asUInt
+        state := Mux(io.sizeMB === 0.U, sDone, sReadPayload)
       }
       is(sReadPayload) {
         when(fifo.io.deq.fire) {
@@ -249,11 +245,12 @@ class H2CAXIs2Mem(
   }
 }
 
-private[fpga] class StableUIntCDC(width: Int) extends Module {
+private[difftest] class StableUIntCDC(width: Int, splitReset: Boolean = false) extends Module {
   require(width > 0, s"CDC width must be positive, got $width")
 
   val io = IO(new Bundle {
     val destinationClock = Input(Clock())
+    val destinationReset = Option.when(splitReset)(Input(Bool()))
     val in = Input(UInt(width.W))
     val out = Output(UInt(width.W))
   })
@@ -268,7 +265,7 @@ private[fpga] class StableUIntCDC(width: Int) extends Module {
   }
 
   // The source value remains stable until the request has crossed and returned.
-  io.out := withClockAndReset(io.destinationClock, reset) {
+  io.out := withClockAndReset(io.destinationClock, io.destinationReset.getOrElse(reset)) {
     val requestSync = RegNext(RegNext(request, false.B), false.B)
     val requestSeen = RegInit(false.B)
     val value = RegInit(0.U(width.W))
@@ -285,6 +282,7 @@ class DifftestMemCtrl(
   axiType: AXI4Bundle,
   hostAxisWidth: Int,
   baseAddr: BigInt,
+  splitClock: Boolean = false,
 ) extends Module {
   private val addrWidth = axiType.addrWidth
   private val dataWidth = axiType.dataWidth
@@ -328,20 +326,23 @@ class DifftestMemCtrl(
   private val memSrcCPU = io.ctrl.memCPU && !memSrcInit && !memSrcH2C
   private val memInitAxi = Wire(new AXI4Bundle(addrWidth, dataWidth, idWidth, userWidth))
   private val h2c = Module(new H2CAXIs2Mem(hostAxisWidth, addrWidth, dataWidth, idWidth, userWidth, baseAddr))
-  private val cpuDelayConfig = Module(new StableUIntCDC(32))
-  cpuDelayConfig.io.destinationClock := io.cpu_clock
-  cpuDelayConfig.io.in := io.ctrl.cpuAXIDelay
+  private val cpuDelayCycles = if (splitClock) io.ctrl.cpuAXIDelay else {
+    val cpuDelayConfig = Module(new StableUIntCDC(32))
+    cpuDelayConfig.io.destinationClock := io.cpu_clock
+    cpuDelayConfig.io.in := io.ctrl.cpuAXIDelay
+    cpuDelayConfig.io.out
+  }
   // The CPU clock can be gated independently, so delay state must follow the AXI channel clock.
   private val cpuDelay = withClockAndReset(io.cpu_clock, reset) {
     Module(new AXI4DynamicDelayer(axiType))
   }
 
   h2c.io.pcie_clock := io.pcie_clock
-  h2c.io.enable := io.ctrl.memH2C
+  h2c.io.enable := memSrcH2C
   h2c.io.sizeMB := io.ctrl.h2cSizeMB
   h2c.io.axis <> io.h2c
   cpuDelay.io.enable := memSrcCPU
-  cpuDelay.io.delayCycles := cpuDelayConfig.io.out
+  cpuDelay.io.delayCycles := cpuDelayCycles
   cpuDelay.io.in.aw <> io.cpu.aw
   cpuDelay.io.in.w <> io.cpu.w
   cpuDelay.io.in.ar <> io.cpu.ar
@@ -351,14 +352,8 @@ class DifftestMemCtrl(
     io.cpu.b <> Queue(cpuDelay.io.in.b, entries = 2, pipe = false, flow = false)
   }
 
-  io.ctrl.memStatus := MuxCase(
-    0.U(2.W),
-    Seq(
-      (io.ctrl.memInit && initRangeError) -> 3.U(2.W),
-      (io.ctrl.memInit && memDone) -> 2.U(2.W),
-      (io.ctrl.memH2C && h2c.io.done) -> 2.U(2.W),
-    ),
-  )
+  io.ctrl.initStatus := Mux(io.ctrl.memInit, Mux(initRangeError, 3.U, Mux(memDone, 2.U, 0.U)), 0.U)
+  io.ctrl.h2cStatus := Mux(memSrcH2C && h2c.io.done, 2.U, 0.U)
 
   memInitAxi.aw.valid := state === sAddr
   memInitAxi.aw.bits := 0.U.asTypeOf(memInitAxi.aw.bits)
