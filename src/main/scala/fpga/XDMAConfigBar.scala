@@ -45,16 +45,24 @@ class XDMAHostCtrlIO extends Bundle {
   val squashMaxFused = UInt(8.W)
 }
 
+class XDMAMemCommand extends Bundle {
+  val memInit = Bool()
+  val memH2C = Bool()
+  val memCPU = Bool()
+  val seed = UInt(32.W)
+  val ramSizeMB = UInt(32.W)
+  val h2cSizeMB = UInt(32.W)
+  val cpuAXIDelay = UInt(32.W)
+}
+
+class XDMAMemStatus extends Bundle {
+  val init = UInt(2.W)
+  val h2c = UInt(2.W)
+}
+
 class XDMAMemCtrlIO extends Bundle {
-  val memInit = Output(Bool())
-  val memH2C = Output(Bool())
-  val memCPU = Output(Bool())
-  val seed = Output(UInt(32.W))
-  val ramSizeMB = Output(UInt(32.W))
-  val h2cSizeMB = Output(UInt(32.W))
-  val cpuAXIDelay = Output(UInt(32.W))
-  val initStatus = Input(UInt(2.W))
-  val h2cStatus = Input(UInt(2.W))
+  val command = Output(new XDMAMemCommand)
+  val status = Input(new XDMAMemStatus)
 }
 
 private object XDMAConfigReg extends Enumeration {
@@ -90,13 +98,14 @@ class XDMAConfigBar(val addrWidth: Int = 32, val dataWidth: Int = 32) extends Mo
   io.hostCtrl.ilaTrigger := regfile(XDMAConfigReg.IlaTrigger.id)(0)
   io.hostCtrl.enableSquash := regfile(XDMAConfigReg.EnableSquash.id)(0)
   io.hostCtrl.squashMaxFused := regfile(XDMAConfigReg.SquashMaxFused.id)(7, 0)
-  io.memCtrl.memInit := regfile(XDMAConfigReg.MemInit.id)(0)
-  io.memCtrl.memH2C := regfile(XDMAConfigReg.MemH2C.id)(0)
-  io.memCtrl.memCPU := regfile(XDMAConfigReg.MemCPU.id)(0)
-  io.memCtrl.seed := regfile(XDMAConfigReg.Seed.id)
-  io.memCtrl.ramSizeMB := regfile(XDMAConfigReg.RamSizeMB.id)
-  io.memCtrl.h2cSizeMB := regfile(XDMAConfigReg.H2CSizeMB.id)
-  io.memCtrl.cpuAXIDelay := regfile(XDMAConfigReg.CpuAXIDelay.id)
+  private val memCommand = io.memCtrl.command
+  memCommand.memInit := regfile(XDMAConfigReg.MemInit.id)(0)
+  memCommand.memH2C := regfile(XDMAConfigReg.MemH2C.id)(0)
+  memCommand.memCPU := regfile(XDMAConfigReg.MemCPU.id)(0)
+  memCommand.seed := regfile(XDMAConfigReg.Seed.id)
+  memCommand.ramSizeMB := regfile(XDMAConfigReg.RamSizeMB.id)
+  memCommand.h2cSizeMB := regfile(XDMAConfigReg.H2CSizeMB.id)
+  memCommand.cpuAXIDelay := regfile(XDMAConfigReg.CpuAXIDelay.id)
   io.cfgReset := regfile(XDMAConfigReg.CfgReset.id)(0)
 
   private def mergeByByte(oldData: UInt, newData: UInt, strb: UInt): UInt = {
@@ -169,10 +178,10 @@ class XDMAConfigBar(val addrWidth: Int = 32, val dataWidth: Int = 32) extends Mo
     rValid := false.B
   }
 
-  when(io.memCtrl.memInit && io.memCtrl.initStatus =/= 0.U) {
-    regfile(XDMAConfigReg.MemInit.id) := io.memCtrl.initStatus
+  when(memCommand.memInit && io.memCtrl.status.init =/= 0.U) {
+    regfile(XDMAConfigReg.MemInit.id) := io.memCtrl.status.init
   }
-  when(io.memCtrl.memH2C && io.memCtrl.h2cStatus =/= 0.U) {
-    regfile(XDMAConfigReg.MemH2C.id) := io.memCtrl.h2cStatus
+  when(memCommand.memH2C && io.memCtrl.status.h2c =/= 0.U) {
+    regfile(XDMAConfigReg.MemH2C.id) := io.memCtrl.status.h2c
   }
 }

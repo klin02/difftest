@@ -302,6 +302,8 @@ class DifftestMemCtrl(
     val mem = new AXI4Bundle(addrWidth, dataWidth, idWidth, userWidth)
   })
 
+  private val command = io.ctrl.command
+
   import MemInitState._
 
   private val state = RegInit(sIdle)
@@ -312,24 +314,24 @@ class DifftestMemCtrl(
   private val lfsr = RegInit(0.U(64.W))
   private val initBytesWidth = (addrWidth + 21).max(64)
   private val initSizeMB = Wire(UInt(initBytesWidth.W))
-  initSizeMB := io.ctrl.ramSizeMB
+  initSizeMB := command.ramSizeMB
   private val initBytes = (initSizeMB << 20)(initBytesWidth - 1, 0)
   private val maxInitBytes =
     if (baseAddr >= (BigInt(1) << addrWidth)) BigInt(0) else (BigInt(1) << addrWidth) - baseAddr
-  private val initRangeError = io.ctrl.ramSizeMB =/= 0.U && initBytes > maxInitBytes.U(initBytesWidth.W)
-  private val start = io.ctrl.memInit && io.ctrl.ramSizeMB =/= 0.U && !initRangeError
+  private val initRangeError = command.ramSizeMB =/= 0.U && initBytes > maxInitBytes.U(initBytesWidth.W)
+  private val start = command.memInit && command.ramSizeMB =/= 0.U && !initRangeError
   private val randomData = VecInit(lfsrWords(lfsr, wordsPerBeat)).asUInt
   private val nextState = stepLFSR(lfsr, wordsPerBeat)
   private val memDone = state === sDone
-  private val memSrcInit = io.ctrl.memInit
-  private val memSrcH2C = io.ctrl.memH2C && !memSrcInit
-  private val memSrcCPU = io.ctrl.memCPU && !memSrcInit && !memSrcH2C
+  private val memSrcInit = command.memInit
+  private val memSrcH2C = command.memH2C && !memSrcInit
+  private val memSrcCPU = command.memCPU && !memSrcInit && !memSrcH2C
   private val memInitAxi = Wire(new AXI4Bundle(addrWidth, dataWidth, idWidth, userWidth))
   private val h2c = Module(new H2CAXIs2Mem(hostAxisWidth, addrWidth, dataWidth, idWidth, userWidth, baseAddr))
-  private val cpuDelayCycles = if (splitClock) io.ctrl.cpuAXIDelay else {
+  private val cpuDelayCycles = if (splitClock) command.cpuAXIDelay else {
     val cpuDelayConfig = Module(new StableUIntCDC(32))
     cpuDelayConfig.io.destinationClock := io.cpu_clock
-    cpuDelayConfig.io.in := io.ctrl.cpuAXIDelay
+    cpuDelayConfig.io.in := command.cpuAXIDelay
     cpuDelayConfig.io.out
   }
   // The CPU clock can be gated independently, so delay state must follow the AXI channel clock.
@@ -339,7 +341,7 @@ class DifftestMemCtrl(
 
   h2c.io.pcie_clock := io.pcie_clock
   h2c.io.enable := memSrcH2C
-  h2c.io.sizeMB := io.ctrl.h2cSizeMB
+  h2c.io.sizeMB := command.h2cSizeMB
   h2c.io.axis <> io.h2c
   cpuDelay.io.enable := memSrcCPU
   cpuDelay.io.delayCycles := cpuDelayCycles
@@ -352,8 +354,8 @@ class DifftestMemCtrl(
     io.cpu.b <> Queue(cpuDelay.io.in.b, entries = 2, pipe = false, flow = false)
   }
 
-  io.ctrl.initStatus := Mux(io.ctrl.memInit, Mux(initRangeError, 3.U, Mux(memDone, 2.U, 0.U)), 0.U)
-  io.ctrl.h2cStatus := Mux(memSrcH2C && h2c.io.done, 2.U, 0.U)
+  io.ctrl.status.init := Mux(command.memInit, Mux(initRangeError, 3.U, Mux(memDone, 2.U, 0.U)), 0.U)
+  io.ctrl.status.h2c := Mux(memSrcH2C && h2c.io.done, 2.U, 0.U)
 
   memInitAxi.aw.valid := state === sAddr
   memInitAxi.aw.bits := 0.U.asTypeOf(memInitAxi.aw.bits)
@@ -363,7 +365,7 @@ class DifftestMemCtrl(
   memInitAxi.aw.bits.burst := 1.U
 
   memInitAxi.w.valid := state === sData
-  memInitAxi.w.bits.data := Mux(io.ctrl.seed === 0.U, 0.U, randomData)
+  memInitAxi.w.bits.data := Mux(command.seed === 0.U, 0.U, randomData)
   memInitAxi.w.bits.strb := Fill(beatBytes, 1.U(1.W))
   memInitAxi.w.bits.last := beat === burstBeats - 1.U
 
@@ -377,13 +379,13 @@ class DifftestMemCtrl(
   switch(state) {
     is(sIdle) {
       when(start) {
-        val seedState = nextLFSR(Cat(0.U(32.W), io.ctrl.seed))
-        val initFirstWord = Mux(io.ctrl.seed === 0.U, 0.U, seedState)
+        val seedState = nextLFSR(Cat(0.U(32.W), command.seed))
+        val initFirstWord = Mux(command.seed === 0.U, 0.U, seedState)
         addr := baseAddr.U
-        beatsLeft := (io.ctrl.ramSizeMB << (20 - log2Ceil(beatBytes))).asUInt
+        beatsLeft := (command.ramSizeMB << (20 - log2Ceil(beatBytes))).asUInt
         lfsr := seedState
         printf(
-          p"[FPGA_SIM] Memory random init with seed = ${io.ctrl.seed}, first word = 0x${Hexadecimal(initFirstWord)}\n"
+          p"[FPGA_SIM] Memory random init with seed = ${command.seed}, first word = 0x${Hexadecimal(initFirstWord)}\n"
         )
         state := sSetup
       }
@@ -416,7 +418,7 @@ class DifftestMemCtrl(
       }
     }
     is(sDone) {
-      when(!io.ctrl.memInit) {
+      when(!command.memInit) {
         state := sIdle
       }
     }

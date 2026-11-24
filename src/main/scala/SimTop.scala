@@ -17,7 +17,7 @@
 package difftest
 
 import chisel3._
-import chisel3.util.{Cat, ShiftRegister}
+import chisel3.util.ShiftRegister
 import chisel3.experimental.prefix
 import chisel3.experimental.dataview._
 import chisel3.reflect.DataMirror
@@ -187,15 +187,15 @@ class SimTop[T <: RawModule with HasDiffTestInterfaces](cpuGen: => T, modPrefix:
         gateway.fpgaIlaBase.foreach(_ := cfg.io.ilaBase)
         gateway.fpgaIlaSize.foreach(_ := Mux(ctrl.diffEnable, cfg.io.ilaSize, 0.U))
 
-        cfg.io.memCtrl.initStatus := 0.U
-        cfg.io.memCtrl.h2cStatus := 0.U
+        val hostMem = cfg.io.memCtrl
+        hostMem.status := 0.U.asTypeOf(chiselTypeOf(hostMem.status))
         from_host_axis.viewAs[AXI4Stream].ready := false.B
         cpu.difftestMemIO.foreach { case DifftestMemIO(cpuRecord, memRecord, socClock) =>
           val cpuAxi = Wire(AXI4Bundle.typeOf(cpuRecord))
           AXI4Bundle.connectRecord(cpuAxi, cpuRecord)
           val memClock = socClock.getOrElse(ref_clock.get)
-          val memReset = socClock.map { slowClock =>
-            withClockAndReset(slowClock, cfgResetActive.asAsyncReset) {
+          val memReset = socClock.map { llcClock =>
+            withClockAndReset(llcClock, cfgResetActive.asAsyncReset) {
               ShiftRegister(false.B, 3, true.B, true.B)
             }
           }.getOrElse(cfgResetActive)
@@ -203,35 +203,23 @@ class SimTop[T <: RawModule with HasDiffTestInterfaces](cpuGen: => T, modPrefix:
             Module(new DifftestMemCtrl(cpuAxi.cloneType, Gateway.hostAxisWidth, baseAddr = 0x80000000L,
               splitClock = socClock.isDefined))
           }
+          val mem = memCtrl.io.ctrl
           socClock match {
-            case Some(slowClock) =>
-              val host = cfg.io.memCtrl
-              val mem = memCtrl.io.ctrl
-              val command = Cat(host.seed, host.ramSizeMB, host.h2cSizeMB, host.cpuAXIDelay,
-                host.memInit, host.memH2C, host.memCPU)
-              val commandCDC = Module(new StableUIntCDC(command.getWidth, splitReset = true))
-              commandCDC.io.destinationClock := slowClock
+            case Some(llcClock) =>
+              val commandCDC = Module(new StableUIntCDC(hostMem.command.getWidth, splitReset = true))
+              commandCDC.io.destinationClock := llcClock
               commandCDC.io.destinationReset.get := memReset
-              commandCDC.io.in := command
-              val slow = commandCDC.io.out
-              mem.seed := slow(130, 99)
-              mem.ramSizeMB := slow(98, 67)
-              mem.h2cSizeMB := slow(66, 35)
-              mem.cpuAXIDelay := slow(34, 3)
-              mem.memInit := slow(2)
-              mem.memH2C := slow(1)
-              mem.memCPU := slow(0)
-              val status = Cat(mem.initStatus, mem.h2cStatus)
-              val statusCDC = withClockAndReset(slowClock, memReset) {
-                Module(new StableUIntCDC(status.getWidth, splitReset = true))
+              commandCDC.io.in := hostMem.command.asUInt
+              mem.command := commandCDC.io.out.asTypeOf(chiselTypeOf(mem.command))
+              val statusCDC = withClockAndReset(llcClock, memReset) {
+                Module(new StableUIntCDC(mem.status.getWidth, splitReset = true))
               }
               statusCDC.io.destinationClock := ref_clock.get
               statusCDC.io.destinationReset.get := cfgResetActive
-              statusCDC.io.in := status
-              host.initStatus := statusCDC.io.out(3, 2)
-              host.h2cStatus := statusCDC.io.out(1, 0)
+              statusCDC.io.in := mem.status.asUInt
+              hostMem.status := statusCDC.io.out.asTypeOf(chiselTypeOf(hostMem.status))
             case None =>
-              memCtrl.io.ctrl <> cfg.io.memCtrl
+              mem <> hostMem
           }
           memCtrl.io.cpu_clock := socClock.getOrElse(clock)
           memCtrl.io.pcie_clock := pcie_clock
