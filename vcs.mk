@@ -41,6 +41,10 @@ VCS_VFILES    = $(SIM_VSRC) $(shell find $(VCS_VSRC_DIR) -name "*.v" -or -name "
 
 VCS_FLAGS 		= $(SIM_VFLAGS)
 
+ifneq ($(shell grep -qs '^\#define CONFIG_HAS_LLC_ASYNC_CLOCK 1$$' "$(GEN_CSRC_DIR)/difftest-state.h" && echo 1),)
+VCS_FLAGS += +define+CONFIG_HAS_LLC_ASYNC_CLOCK
+endif
+
 ifeq ($(WITH_DRAMSIM3),1)
 VCS_FLAGS += +define+WITH_DRAMSIM3
 endif

@@ -230,8 +230,21 @@ DifftestClockGate gate(
   assign core_clock = sim_clock;
 `endif // CONFIG_DIFFTEST_CLOCKGATE
 
+`ifdef CONFIG_HAS_LLC_ASYNC_CLOCK
+integer soc_half_period = 1;
+reg soc_clock = 1'b0;
+initial begin
+  void'($value$plusargs("soc-half-period=%d", soc_half_period));
+  if (soc_half_period <= 0) $fatal(1, "soc-half-period must be positive");
+  forever #(soc_half_period) soc_clock = ~soc_clock;
+end
+`endif
+
 SimTop sim(
   .clock(core_clock),
+`ifdef CONFIG_HAS_LLC_ASYNC_CLOCK
+  .llcAsyncClock(soc_clock),
+`endif
   .reset(reset),
 `ifdef FPGA_SIM
   .difftest_pcie_clock(difftest_pcie_clock),
