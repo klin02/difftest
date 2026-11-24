@@ -343,6 +343,16 @@ always @(posedge clock) begin
     end
   end
 end
+`elsif CONFIG_HAS_LLC_ASYNC_CLOCK
+// DPI writes at the rising edge settle before the falling-edge comparison.
+always @(negedge clock or posedge reset) begin
+  if (reset)
+    simv_result <= 8'b0;
+  else if (n_cycles && |difftest_step)
+    simv_result <= simv_nstep(difftest_step);
+  else
+    simv_result <= 8'b0;
+end
 `else
 /*
  * for other platform, we introduce a delayed difftest step

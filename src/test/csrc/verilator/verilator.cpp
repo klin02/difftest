@@ -40,17 +40,17 @@ VerilatorSim::~VerilatorSim() {
 }
 
 void VerilatorSim::configure_clocks(uint32_t core_half_period, uint32_t accelerator_half_period) {
-#ifdef CONFIG_HAS_ACCELERATOR_CLOCK
+#if defined(CONFIG_HAS_ACCELERATOR_CLOCK) || defined(CONFIG_HAS_LLC_ASYNC_CLOCK)
   core_clock_half_period = core_half_period;
   accelerator_clock_half_period = accelerator_half_period;
   set_clock(0);
   set_accelerator_clock(0);
   step();
-#endif // CONFIG_HAS_ACCELERATOR_CLOCK
+#endif
 }
 
 void VerilatorSim::half_cycle(unsigned core_clock_level) {
-#ifdef CONFIG_HAS_ACCELERATOR_CLOCK
+#if defined(CONFIG_HAS_ACCELERATOR_CLOCK) || defined(CONFIG_HAS_LLC_ASYNC_CLOCK)
   bool accelerator_edge_at_core_edge = false;
   accelerator_clock_phase += core_clock_half_period;
   while (accelerator_clock_phase >= accelerator_clock_half_period) {
@@ -76,7 +76,7 @@ void VerilatorSim::half_cycle(unsigned core_clock_level) {
 #else
   set_clock(core_clock_level);
   step();
-#endif // CONFIG_HAS_ACCELERATOR_CLOCK
+#endif
 }
 
 void VerilatorSim::single_cycle(const std::function<void()> &memory_tick, const std::function<bool()> &should_dump,
@@ -102,7 +102,7 @@ void VerilatorSim::reset_cycle(bool dump) {
   set_reset(0);
 }
 
-#ifdef CONFIG_HAS_ACCELERATOR_CLOCK
+#if defined(CONFIG_HAS_ACCELERATOR_CLOCK) || defined(CONFIG_HAS_LLC_ASYNC_CLOCK)
 void VerilatorSim::save_extra_state(const std::function<void(void *, size_t)> &write) {
   write(&accelerator_clock_phase, sizeof(accelerator_clock_phase));
   write(&accelerator_clock_level, sizeof(accelerator_clock_level));
@@ -121,7 +121,7 @@ void VerilatorSim::load_extra_state(const std::function<void(void *, size_t)> &r
     assert(0);
   }
 }
-#endif // CONFIG_HAS_ACCELERATOR_CLOCK
+#endif
 
 void VerilatorSim::atClone() {
 #ifdef VERILATOR_VERSION_INTEGER // >= v4.220
