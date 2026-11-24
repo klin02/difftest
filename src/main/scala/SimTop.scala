@@ -17,6 +17,7 @@
 package difftest
 
 import chisel3._
+import chisel3.util.{Cat, ShiftRegister}
 import chisel3.experimental.prefix
 import chisel3.experimental.dataview._
 import chisel3.reflect.DataMirror
@@ -29,7 +30,7 @@ import difftest.common.{
   VerilogAXI4Record,
   VerilogAXI4StreamRecord,
 }
-import difftest.fpga.{DifftestMemCtrl, HostEndpoint, XDMAConfigBar, XDMAHostCtrlIO}
+import difftest.fpga.{DifftestMemCtrl, HostEndpoint, StableUIntCDC, XDMAConfigBar, XDMAHostCtrlIO}
 import difftest.gateway.Gateway
 
 class DifftestTopIO extends Bundle {
@@ -69,7 +70,7 @@ class UARTIO extends Bundle {
   }
 }
 
-case class DifftestMemIO(cpu: Record, mem: Option[Record] = None)
+case class DifftestMemIO(cpu: Record, mem: Option[Record] = None, socClock: Option[Clock] = None)
 
 trait HasDiffTestInterfaces extends ImplicitClock with ImplicitReset { this: RawModule =>
   def cpuName: Option[String] = None
@@ -155,7 +156,8 @@ class SimTop[T <: RawModule with HasDiffTestInterfaces](cpuGen: => T, modPrefix:
         }
         cnt =/= 0.U
       }
-      withClockAndReset(ref_clock.get, ref_reset || cfgReset) {
+      val cfgResetActive = ref_reset || cfgReset
+      withClockAndReset(ref_clock.get, cfgResetActive) {
         val cfg = Module(new XDMAConfigBar)
         cfgResetReq := cfg.io.cfgReset
         val ctrl = cfg.io.hostCtrl
@@ -185,14 +187,53 @@ class SimTop[T <: RawModule with HasDiffTestInterfaces](cpuGen: => T, modPrefix:
         gateway.fpgaIlaBase.foreach(_ := cfg.io.ilaBase)
         gateway.fpgaIlaSize.foreach(_ := Mux(ctrl.diffEnable, cfg.io.ilaSize, 0.U))
 
-        cfg.io.memCtrl.memStatus := 0.U
+        cfg.io.memCtrl.initStatus := 0.U
+        cfg.io.memCtrl.h2cStatus := 0.U
         from_host_axis.viewAs[AXI4Stream].ready := false.B
-        cpu.difftestMemIO.foreach { case DifftestMemIO(cpuRecord, memRecord) =>
+        cpu.difftestMemIO.foreach { case DifftestMemIO(cpuRecord, memRecord, socClock) =>
           val cpuAxi = Wire(AXI4Bundle.typeOf(cpuRecord))
           AXI4Bundle.connectRecord(cpuAxi, cpuRecord)
-          val memCtrl = Module(new DifftestMemCtrl(cpuAxi.cloneType, Gateway.hostAxisWidth, baseAddr = 0x80000000L))
-          memCtrl.io.ctrl <> cfg.io.memCtrl
-          memCtrl.io.cpu_clock := clock
+          val memClock = socClock.getOrElse(ref_clock.get)
+          val memReset = socClock.map { slowClock =>
+            withClockAndReset(slowClock, cfgResetActive.asAsyncReset) {
+              ShiftRegister(false.B, 3, true.B, true.B)
+            }
+          }.getOrElse(cfgResetActive)
+          val memCtrl = withClockAndReset(memClock, memReset) {
+            Module(new DifftestMemCtrl(cpuAxi.cloneType, Gateway.hostAxisWidth, baseAddr = 0x80000000L,
+              splitClock = socClock.isDefined))
+          }
+          socClock match {
+            case Some(slowClock) =>
+              val host = cfg.io.memCtrl
+              val mem = memCtrl.io.ctrl
+              val command = Cat(host.seed, host.ramSizeMB, host.h2cSizeMB, host.cpuAXIDelay,
+                host.memInit, host.memH2C, host.memCPU)
+              val commandCDC = Module(new StableUIntCDC(command.getWidth, splitReset = true))
+              commandCDC.io.destinationClock := slowClock
+              commandCDC.io.destinationReset.get := memReset
+              commandCDC.io.in := command
+              val slow = commandCDC.io.out
+              mem.seed := slow(130, 99)
+              mem.ramSizeMB := slow(98, 67)
+              mem.h2cSizeMB := slow(66, 35)
+              mem.cpuAXIDelay := slow(34, 3)
+              mem.memInit := slow(2)
+              mem.memH2C := slow(1)
+              mem.memCPU := slow(0)
+              val status = Cat(mem.initStatus, mem.h2cStatus)
+              val statusCDC = withClockAndReset(slowClock, memReset) {
+                Module(new StableUIntCDC(status.getWidth, splitReset = true))
+              }
+              statusCDC.io.destinationClock := ref_clock.get
+              statusCDC.io.destinationReset.get := cfgResetActive
+              statusCDC.io.in := status
+              host.initStatus := statusCDC.io.out(3, 2)
+              host.h2cStatus := statusCDC.io.out(1, 0)
+            case None =>
+              memCtrl.io.ctrl <> cfg.io.memCtrl
+          }
+          memCtrl.io.cpu_clock := socClock.getOrElse(clock)
           memCtrl.io.pcie_clock := pcie_clock
           memCtrl.io.h2c <> from_host_axis.viewAs[AXI4Stream]
           memCtrl.io.cpu <> cpuAxi

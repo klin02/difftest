@@ -53,7 +53,8 @@ class XDMAMemCtrlIO extends Bundle {
   val ramSizeMB = Output(UInt(32.W))
   val h2cSizeMB = Output(UInt(32.W))
   val cpuAXIDelay = Output(UInt(32.W))
-  val memStatus = Input(UInt(2.W))
+  val initStatus = Input(UInt(2.W))
+  val h2cStatus = Input(UInt(2.W))
 }
 
 private object XDMAConfigReg extends Enumeration {
@@ -168,10 +169,10 @@ class XDMAConfigBar(val addrWidth: Int = 32, val dataWidth: Int = 32) extends Mo
     rValid := false.B
   }
 
-  when(io.memCtrl.memInit && io.memCtrl.memStatus =/= 0.U) {
-    regfile(XDMAConfigReg.MemInit.id) := io.memCtrl.memStatus
+  when(io.memCtrl.memInit && io.memCtrl.initStatus =/= 0.U) {
+    regfile(XDMAConfigReg.MemInit.id) := io.memCtrl.initStatus
   }
-  when(io.memCtrl.memH2C && io.memCtrl.memStatus =/= 0.U) {
-    regfile(XDMAConfigReg.MemH2C.id) := io.memCtrl.memStatus
+  when(io.memCtrl.memH2C && io.memCtrl.h2cStatus =/= 0.U) {
+    regfile(XDMAConfigReg.MemH2C.id) := io.memCtrl.h2cStatus
   }
 }
