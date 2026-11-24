@@ -162,6 +162,13 @@ int InstrCommitChecker::check(const DifftestInstrCommit &probe) {
   // when there's a fused instruction, let proxy execute more instructions.
   for (int j = 0; j < probe.nFused + 1; j++) {
     proxy->ref_exec(1);
+#if defined(CONFIG_DIFFTEST_CMOINVALEVENT) && defined(CONFIG_DIFFTEST_REFILLEVENT) && defined(DEBUG_REFILL)
+    if (!state->early_cmo_refills.empty()) {
+      if (int ret = RefillChecker::sync_early_cmo_refills(state, proxy)) {
+        return ret;
+      }
+    }
+#endif
 #ifdef CONFIG_DIFFTEST_SQUASH
     state->commit_stamp = (state->commit_stamp + 1) % CONFIG_DIFFTEST_SQUASH_STAMPSIZE;
     for (auto checker: op_checkers) { // check stamp-aligned operations after each instruction

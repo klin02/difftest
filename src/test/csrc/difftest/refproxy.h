@@ -173,6 +173,9 @@ public:
   f(ref_store_commit_hash, difftest_store_commit_hash, int, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) \
   REF_EXEC_MODE(f) \
   REF_FORK(f)                                                                                     \
+  f(ref_cmo_inval_arm, difftest_cmo_inval_arm, bool, uint64_t)                                              \
+  f(ref_cmo_inval_written, difftest_cmo_inval_written, int, uint64_t, uint64_t*)                             \
+  f(ref_cmo_inval_release, difftest_cmo_inval_release, void, uint64_t)                                      \
   f(ref_init_v2, difftest_init_v2, void, unsigned)                                                          \
   f(load_flash_bin, difftest_load_flash, void, const char*, size_t)                                         \
   f(load_flash_bin_v2, difftest_load_flash_v2, void, const uint8_t*, size_t)                                \
@@ -266,6 +269,30 @@ public:
   ~RefProxy();
 
   ref_state_t state;
+
+#ifdef CONFIG_DIFFTEST_CMOINVALEVENT
+  enum class CmoWatchState {
+    Armed = -1,
+    Missing = 0,
+    Active = 1
+  };
+
+  bool has_cmo_write_watch() const {
+#if defined(DEBUG_REFILL) && defined(CONFIG_DIFFTEST_REFILLEVENT) && NUM_CORES == 1 && \
+    !defined(CONFIG_DIFFTEST_SQUASH) && !defined(CONFIG_DIFFTEST_REPLAY) && !defined(CONFIG_DIFFTEST_FAST_REF)
+    return ref_cmo_inval_arm && ref_cmo_inval_written && ref_cmo_inval_release;
+#else
+    return false;
+#endif
+  }
+
+  using AbstractRefProxy::ref_cmo_inval_arm;
+  using AbstractRefProxy::ref_cmo_inval_release;
+
+  CmoWatchState cmo_inval_written(uint64_t line, uint64_t &mask) {
+    return static_cast<CmoWatchState>(ref_cmo_inval_written(line, &mask));
+  }
+#endif
 
   inline uint64_t *arch_reg(uint8_t src, bool is_fp = false) {
     return

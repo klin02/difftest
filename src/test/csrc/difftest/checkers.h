@@ -301,6 +301,10 @@ public:
   RefillChecker(GetProbeFn get_probe, DiffState *state, RefProxy *proxy, uint64_t index)
       : ProbeChecker<DifftestRefillEvent>(get_probe, state, proxy), index(index) {}
 
+#if defined(CONFIG_DIFFTEST_CMOINVALEVENT) && defined(DEBUG_REFILL)
+  static int sync_early_cmo_refills(DiffState *state, RefProxy *proxy);
+#endif
+
 private:
   uint64_t index;
 

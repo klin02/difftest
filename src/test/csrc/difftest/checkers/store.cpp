@@ -57,8 +57,8 @@ void StoreRecorder::clear_valid(DifftestStoreEvent &probe) {
 // been reconciled by a refill yet. This runs when the event is recorded, i.e.
 // before the refill checkers of the same cycle: a refill that arrives together
 // with the store event must still see these bytes as protected.
-static void mark_cmo_store(DiffState *state, uint64_t addr, uint8_t mask) {
-  if (state->cmo_inval_lines.empty()) {
+static void mark_cmo_store(DiffState *state, RefProxy *proxy, uint64_t addr, uint8_t mask) {
+  if (state->cmo_inval_lines.empty() || proxy->has_cmo_write_watch()) {
     return;
   }
   for (int i = 0; i < 8; i++) {
@@ -132,7 +132,7 @@ int StoreRecorder::check(const DifftestStoreEvent &probe) {
         };
         state->store_event_queue.push(storeCommitLow);
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
-        mark_cmo_store(state, commitLowAddr, commitLowMask);
+        mark_cmo_store(state, proxy, commitLowAddr, commitLowMask);
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
       }
 
@@ -159,7 +159,7 @@ int StoreRecorder::check(const DifftestStoreEvent &probe) {
         };
         state->store_event_queue.push(storeCommitHigh);
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
-        mark_cmo_store(state, commitHighAddr, commitHighMask);
+        mark_cmo_store(state, proxy, commitHighAddr, commitHighMask);
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
       }
     }
@@ -187,7 +187,7 @@ int StoreRecorder::check(const DifftestStoreEvent &probe) {
       };
       state->store_event_queue.push(storeCommit);
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
-      mark_cmo_store(state, refStoreCommitAddr, refStoreCommitMask);
+      mark_cmo_store(state, proxy, refStoreCommitAddr, refStoreCommitMask);
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
     }
   } else {
@@ -216,7 +216,7 @@ int StoreRecorder::check(const DifftestStoreEvent &probe) {
       };
       state->store_event_queue.push(storeCommitLow);
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
-      mark_cmo_store(state, commitLowAddr, commitLowMask);
+      mark_cmo_store(state, proxy, commitLowAddr, commitLowMask);
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
     }
 
@@ -242,7 +242,7 @@ int StoreRecorder::check(const DifftestStoreEvent &probe) {
       };
       state->store_event_queue.push(storeCommitHigh);
 #ifdef CONFIG_DIFFTEST_CMOINVALEVENT
-      mark_cmo_store(state, commitHighAddr, commitHighMask);
+      mark_cmo_store(state, proxy, commitHighAddr, commitHighMask);
 #endif // CONFIG_DIFFTEST_CMOINVALEVENT
     }
   }
