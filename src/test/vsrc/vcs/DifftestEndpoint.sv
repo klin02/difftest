@@ -343,15 +343,15 @@ always @(posedge clock) begin
     end
   end
 end
-`elsif CONFIG_HAS_LLC_ASYNC_CLOCK
+`else
+reg [7:0] _res;
+`ifdef CONFIG_HAS_LLC_ASYNC_CLOCK
 // DPI writes at the rising edge settle before the falling-edge comparison.
 always @(negedge clock or posedge reset) begin
   if (reset)
-    simv_result <= 8'b0;
+    _res <= 8'b0;
   else if (n_cycles && |difftest_step)
-    simv_result <= simv_nstep(difftest_step);
-  else
-    simv_result <= 8'b0;
+    _res <= simv_nstep(difftest_step);
 end
 `else
 /*
@@ -359,7 +359,6 @@ end
  * mechanism to make sure all difftest state was updated properly
  * before `simv_step()` called.
  */
-reg [7:0] _res;
 event simv_step_event;
 // check difftest_step
 always @(posedge clock) begin
@@ -377,6 +376,7 @@ always @(simv_step_event or posedge reset) begin
   else
     _res <= simv_nstep(difftest_step);
 end
+`endif // CONFIG_HAS_LLC_ASYNC_CLOCK
 // update to `simv_result` at next cycle
 always @(posedge clock) begin
   if (reset || simv_result == `SIMV_GOODTRAP || simv_result == `SIMV_EXCEED) begin
