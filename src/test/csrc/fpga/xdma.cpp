@@ -59,9 +59,10 @@ template <typename Func, typename Obj, typename... Args> void thread_wrapper(Fun
   (obj->*func)(args...);
 }
 
-FpgaXdma::FpgaXdma(bool fork_readers, size_t pool_slots) {
+FpgaXdma::FpgaXdma(bool fork_readers, size_t pool_slots, bool batch_read) {
 #ifdef USE_THREAD_MEMPOOL
   this->fork_readers = fork_readers;
+  this->batch_read = batch_read;
   packet_pool = std::make_unique<MemoryIdxPool>(sizeof(FpgaPackgeHead), fork_readers ? pool_slots : NUM_BLOCKS);
   if (fork_readers)
     g_packet_pool = packet_pool.get();
@@ -360,12 +361,6 @@ void FpgaXdma::stop_thansmit_thread() {
 void FpgaXdma::read_xdma_thread(int channel) {
   constexpr size_t packet_bytes = sizeof(FpgaPackgeHead);
   size_t mem_get_idx = 0;
-#if !defined(FPGA_SIM) && CONFIG_DMA_CHANNELS <= 1
-  const char *batch_option = relay ? nullptr : std::getenv("DIFFTEST_XDMA_BATCH_READ");
-  const bool batch_read = batch_option && std::strcmp(batch_option, "1") == 0;
-#else
-  constexpr bool batch_read = false;
-#endif
   size_t max_packets = 1; // The first read sets the driver's FIFO packet length.
 #ifdef CONFIG_DIFFTEST_FORK_REF
   std::chrono::steady_clock::time_point timeout_start{};
